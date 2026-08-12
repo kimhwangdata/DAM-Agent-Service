@@ -175,12 +175,13 @@ logic locally against local files or mocked S3.
 
 ## Error Handling
 
-- Upload failures must not crash the agent or drop the image: write the
-  capture to the local queue and retry with backoff.
+- Upload failures must not crash the agent: captures wait in the **bounded
+  in-memory upload queue** and retry with backoff. The agent **never writes
+  images to device storage** (no-local-save design, `docs/design/01-agent.md`
+  §1); if the queue overflows, the oldest frame is dropped and the drop is
+  counted in logs.
 - Log errors with context (capture id, S3 key, attempt count) for debugging;
   never log secrets, tokens, or credentials.
-- Watch disk usage on the Pi: the local queue must have a size/age cap with an
-  explicit, logged eviction policy.
 - **Never lose a day**: video builds are idempotent and retryable — rerunning
   the builder for the same device + date overwrites the same output key.
   Skip (and count in logs) invalid/zero-byte images instead of failing the

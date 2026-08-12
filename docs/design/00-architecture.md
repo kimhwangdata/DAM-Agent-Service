@@ -72,8 +72,12 @@ A Python agent (`agent/`) runs on each Pi as a systemd service.
   **device-local** (`hhmmssfff` from `strftime("%H%M%S%f")` truncated to
   milliseconds) — one day-folder is exactly one video's input, sorted by
   filename. Capture IDs remain **ULIDs** (time-ordered) in the metadata.
-- **Never lose a capture**: failed uploads go to a local disk queue and retry
-  with backoff; the queue has a size/age cap with a logged eviction policy.
+- **No local save**: images are never written to device storage — capture
+  goes to an in-memory JPEG, into a **bounded in-memory upload queue**, then
+  straight to S3 (retry with backoff; on overflow the oldest frame is
+  dropped and counted in logs). Trade-off accepted in `01-agent.md` §1: an
+  outage longer than the queue, or a power loss, loses those frames — a
+  daily video tolerates missing frames.
 - **Identity**: `device_id` is a stable per-device config value. Hostname
   convention for bench devices: `dam-{sensor}[-{lens}][-{n}]`.
 - **Credentials**: a dedicated IAM identity per device, scoped to `PutObject`
@@ -215,8 +219,8 @@ s3://knh-dam-backup/                       (private, long-term archive,
 
 | Failure | Behavior |
 | ------- | -------- |
-| Network/S3 down during capture | agent queues locally, retries with backoff; capture never lost |
-| Device disk pressure | queue size/age cap with explicit, logged eviction |
+| Network/S3 down during capture | agent buffers in the bounded in-memory queue and retries with backoff; if the outage outlives the queue, oldest frames are dropped and counted (accepted, `01-agent.md` §1) |
+| Device disk pressure | not applicable — the agent never writes images to disk (no-local-save design) |
 | Corrupt/zero-byte images | builder skips and counts them; build proceeds |
 | Build crash / partial run | idempotent re-run for the same Post+date overwrites the same output key |
 | Build failed silently | forbidden — structured logs + retry/DLQ make every missing daily video diagnosable |
@@ -245,8 +249,8 @@ its repo.
    stage-suffixed buckets.
 4. Video registration: builder writes DynamoDB Video item vs. webapp
    pool-sync only.
-5. Capture backend: picamera2 vs. shelling out to `rpicam-still` (two camera
-   stacks in the fleet today — see `docs/reference/camera-info.md`).
+5. ~~Capture backend~~ — resolved: **picamera2** (see `01-agent.md` §1;
+   record as ADR-0001 when the ADR index is created).
 6. First increment of the upload-security layers (§6), when scheduled.
 
 ## 12. References
