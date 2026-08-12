@@ -66,6 +66,8 @@ tooling.
 agent/              Python package — capture, scheduler, uploader, local queue, config
 video-builder/      AWS Lambda video builder — handler, ffmpeg invocation, IaC/deploy
                     config (packaging: ffmpeg layer or container image — see ADR)
+upload-signer/      AWS Lambda issuing presigned upload URLs to devices
+                    (ADR-0003 — devices hold app tokens, never AWS credentials)
 systemd/            Unit files: agent service (+ timer if used) installed on the Pi
 scripts/            deploy.sh / deploy.ps1 (rsync/scp over SSH + service restart),
                     provisioning helpers (enable camera, install deps on the Pi),

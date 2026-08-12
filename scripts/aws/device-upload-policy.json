@@ -1,0 +1,12 @@
+{
+  "__comment": "Execution-role policy for the upload-signer Lambda (ADR-0003). The signer is the ONLY identity that can write images; devices hold app tokens, never AWS credentials. Prefix scoping per device is enforced in signer code (location_id derived from the token).",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DamSignerPutImagesOnly",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::knh-dam-store/images/*"
+    }
+  ]
+}

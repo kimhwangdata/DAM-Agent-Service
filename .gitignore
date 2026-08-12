@@ -17,3 +17,6 @@ queue/
 
 # Project specific
 legacy-rpi-camera/
+
+# build artifacts
+*.egg-info/

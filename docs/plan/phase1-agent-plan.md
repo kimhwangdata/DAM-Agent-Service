@@ -50,15 +50,37 @@
 - [ ] Tests: key formatting around midnight rollover (fixed tz fixtures),
       hhmmssfff truncation, pacing math (mocked clock — no real sleeps).
 
-### 1.4 Upload queue & uploader (§2, §5)
+### 1.4 Upload path — signer + queue + uploader (§2, §5, ADR-0003)
+
+Cloud side first (the agent needs it to upload):
+
+- [ ] `upload-signer/handler.py`: Lambda behind a function URL —
+      `POST /sign` verifies the device token hash against the
+      `knh-dam-devices` DynamoDB table (`location_id`, `token_hash`,
+      `enabled`), derives the prefix from the token identity, validates
+      key shape (`{YYYY-MM-DD}/{hhmmssfff}.jpg`) and content type, returns
+      a presigned PUT URL (~60 s) + final key. 401/403 on bad/disabled
+      token; 400 on bad key shape.
+- [ ] Deploy script: create table, execution role
+      (`scripts/aws/device-upload-policy.json` = PutObject on `images/*`
+      + presign, DynamoDB read), Lambda + function URL (profile `knh-dev`).
+- [ ] `scripts/aws/issue_device_token.py`: generate token, store hash in
+      the table, print once for the device's `.env.{STAGE}`.
+- [ ] Signer tests (Windows): token verify, prefix derivation (request
+      cannot override location), key-shape rejection, disabled-device 403
+      (DynamoDB/S3 mocked).
+
+Device side:
 
 - [ ] `agent/uploader.py`: bounded `queue.Queue(QUEUE_MAX)`; drop-oldest on
-      overflow with counter; uploader thread doing boto3 `put_object`
-      (`ContentType`, `x-amz-meta-*` per §5) with exponential backoff
-      (1 s → 60 s cap) and re-queue-at-front on failure; counters
+      overflow with counter; uploader thread doing the two-step §5 flow
+      with stdlib `urllib` (sign → PUT with `ContentType` +
+      `x-amz-meta-*`), exponential backoff (1 s → 60 s cap), fresh presign
+      per retry, re-queue-at-front on failure; counters
       (uploaded / dropped / failed / attempts).
-- [ ] Tests: overflow drop-oldest, retry/backoff with mocked S3 client,
-      counters, capture-side put never blocks.
+- [ ] Tests: overflow drop-oldest, retry/backoff with a mocked signer +
+      mocked PUT (no network), expired-URL retry path, counters,
+      capture-side put never blocks.
 
 ### 1.5 HTTP viewer (§6)
 
@@ -108,8 +130,8 @@
 - [ ] `scripts/deploy.ps1` (+ `.sh`): rsync/scp `agent/` + unit file to a
       target Pi over SSH (key auth), `systemctl daemon-reload && restart
       dam-agent`, tail `journalctl` for a quick health check.
-- [ ] Device `.env.dev` on the bench Pi (real scoped credentials — never
-      committed).
+- [ ] Device `.env.dev` on the bench Pi: `UPLOAD_SIGNER_URL` + its issued
+      `DEVICE_TOKEN` (no AWS credentials — ADR-0003; never committed).
 
 ### 1.8 On-Pi verification (phase exit criteria)
 

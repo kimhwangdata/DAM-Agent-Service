@@ -80,8 +80,12 @@ A Python agent (`agent/`) runs on each Pi as a systemd service.
   daily video tolerates missing frames.
 - **Identity**: `device_id` is a stable per-device config value. Hostname
   convention for bench devices: `dam-{sensor}[-{lens}][-{n}]`.
-- **Credentials**: a dedicated IAM identity per device, scoped to `PutObject`
-  under its own `images/{location_id}/` prefix only (see §6 baseline).
+- **Credentials**: devices hold **no AWS credentials** (ADR-0003). The agent
+  requests a short-lived presigned PUT URL from the **upload-signer Lambda**
+  using a per-device app token, then uploads over plain HTTPS. Only the
+  signer's execution role can write to S3, and it derives the device's
+  prefix from the token — a stolen token cannot reach other prefixes and is
+  revocable instantly (device table kill-switch).
 
 ## 4. Part 2 — Video builder (AWS Lambda)
 
@@ -141,17 +145,20 @@ design leaves room for it.
 **Baseline that already exists (implemented as part of Parts 1–3):**
 
 - Private buckets; no public access; playback via presigned URLs only.
-- Per-device IAM identity scoped to `PutObject` on its own
-  `images/{location_id}/` prefix — a leaked device credential cannot touch
-  other prefixes, the video pool, or anything else.
+- **No AWS credentials on devices** (ADR-0003): uploads go through the
+  upload-signer Lambda — per-device app tokens, prefix derived server-side
+  from the token, presigned PUT URLs (~60 s TTL), instant per-device
+  kill-switch (`enabled=false` in the device table), and server-side key
+  shape validation (this is layer 1 below, live from day one).
 - Key-only SSH on devices; no credentials in code or repos.
 
 **Planned layers (design placeholders, roughly in adoption order):**
 
-1. **Upload validation**: S3 policy/agent-side constraints on content-type,
-   max object size, and key shape
-   (`images/{location_id}/YYYY-MM-DD/hhmmssfff.jpg`); reject anything else.
-   Cheap, catches accidents and crude abuse.
+1. **Upload validation** — ~~planned~~ largely **live via the signer**
+   (ADR-0003): key shape (`images/{location_id}/YYYY-MM-DD/hhmmssfff.jpg`)
+   and content-type are enforced server-side before a URL is signed;
+   size capping at the S3 layer would need presigned POST (open question in
+   ADR-0003).
 2. **Quotas & rate limits**: expected volume is known (~1,800 images/day per
    device, bounded size). Per-device daily object/byte budgets with alerts —
    an out-of-budget device signals a bug or a compromised credential.

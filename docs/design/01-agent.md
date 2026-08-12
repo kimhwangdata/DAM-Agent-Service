@@ -16,7 +16,8 @@ legacy design, which saved a day of files to disk and uploaded later).
 | Decision | Choice |
 | -------- | ------ |
 | Capture backend | **picamera2** (legacy-proven; both fleet camera stacks verified working with it; in-memory JPEG without temp files). This resolves ADR-0001. |
-| Image path | camera → in-memory JPEG → **bounded in-memory upload queue** → S3. No disk writes. |
+| Image path | camera → in-memory JPEG → **bounded in-memory upload queue** → presigned PUT to S3. No disk writes. |
+| Upload auth | **presigned URLs from the upload-signer Lambda** (ADR-0003) — no AWS credentials and no boto3 on the device |
 | Interval | legacy formula, parameterized by **minutes of video per 24 h** (default 1) — §3 |
 | Viewer | built-in **HTTP mini-viewer** serving the latest captured frame — §6 (the Qt `camera_viewer.py` is not ported) |
 | Durability trade-off | if power dies or an outage outlives the queue, those frames are lost — **accepted** (a daily video tolerates missing frames; simplicity wins). The queue + retries cover ordinary network blips. |
@@ -49,10 +50,10 @@ legacy design, which saved a day of files to disk and uploaded later).
 - **upload queue** — `queue.Queue(maxsize=QUEUE_MAX)` of in-memory items.
   When full, **drop the oldest** item and count it (logged); never block the
   capture loop.
-- **uploader** — boto3 `put_object` with capture metadata as S3 object
-  metadata (ULID, device id, UTC timestamp, timezone). Exponential backoff
-  retry (e.g. 1 s → 2 s → … capped at 60 s) on failure, then re-queue at the
-  front; per-item attempt count in logs.
+- **uploader** — presigned-URL flow per §5 (sign, then HTTPS PUT; stdlib
+  `urllib`, no boto3 on the device). Exponential backoff retry (e.g.
+  1 s → 2 s → … capped at 60 s) on failure, then re-queue at the front;
+  per-item attempt count in logs.
 - **viewer** — §6. Shares the last captured frame via a single in-memory
   reference; no camera access of its own.
 
@@ -106,15 +107,32 @@ the cadence. Differences from legacy:
   auto exposure/AWB on. Per-camera tuning stays out of the agent (it lives
   in the camera stack; see `docs/reference/camera-info.md`).
 
-## 5. S3 upload
+## 5. Upload — presigned URLs, no AWS credentials on the device (ADR-0003)
 
-- Key: `images/{location_id}/{YYYY-MM-DD}/{hhmmssfff}.jpg` (device-local
-  date/time, architecture §7).
-- `ContentType: image/jpeg`; metadata as **S3 object metadata**
-  (`x-amz-meta-ulid`, `-device-id`, `-captured-utc`, `-timezone`) — no `.json`
-  sidecar in v1 (simpler; the sidecar remains optional in the architecture).
-- Credentials: the device's scoped IAM identity from `.env.{STAGE}`
-  (PutObject on `images/{location_id}/*` only).
+Per frame, the uploader makes two HTTPS calls with stdlib `urllib` (no
+boto3 on the device):
+
+1. `POST {UPLOAD_SIGNER_URL}/sign` with
+   `{token, date, filename, content_type}` → the **upload-signer Lambda**
+   verifies the token against the `knh-dam-devices` DynamoDB table
+   (`location_id`, `token_hash`, `enabled`), derives the prefix from the
+   token identity (never from the request), validates the key shape
+   (`{YYYY-MM-DD}/{hhmmssfff}.jpg`), and returns a presigned **PUT** URL
+   (~60 s TTL) plus the exact key.
+2. `PUT` the JPEG bytes to that URL, `ContentType: image/jpeg`, capture
+   metadata as `x-amz-meta-*` headers (signed by the signer: ulid,
+   device-id, captured-utc, timezone). No `.json` sidecar in v1.
+
+Failure at either step counts as one upload failure → backoff and retry
+(§2); the presign is re-requested on each retry (URLs expire).
+
+**upload-signer** (`upload-signer/` in this repo, built in Phase 1): one
+Python Lambda behind a function URL; execution role scoped to
+`s3:PutObject` on `knh-dam-store/images/*`; token hashes only (no
+plaintext) in the device table; `enabled=false` is the per-device
+kill-switch. Token issuance via an operator script
+(`scripts/aws/issue_device_token.py`) that writes the hash to the table and
+the plaintext token into the device's `.env.{STAGE}` once.
 
 ## 6. Viewer — "what is the camera seeing right now?"
 
@@ -172,7 +190,8 @@ The whole viewer is ~100 lines of stdlib Python.
 | `CAPTURE_SIZE` | `1280,720` | capture resolution `W,H` |
 | `QUEUE_MAX` | `64` | in-memory queue bound (≈50 min at default interval, ~30 MB at 1280×720) |
 | `VIEWER_PORT` | `8080` | HTTP viewer/health port; `0` = disabled |
-| AWS credentials | — | scoped device identity (env/instance standard chain) |
+| `UPLOAD_SIGNER_URL` | — (required) | upload-signer Lambda function URL |
+| `DEVICE_TOKEN` | — (required) | per-device app token (NOT an AWS credential; revocable server-side) |
 
 ## 8. Module layout & runtime
 
@@ -181,7 +200,7 @@ agent/
   config.py     settings from .env.{STAGE} (only source of constants)
   camera.py     CameraSource interface + Picamera2Camera + FakeCamera
   capture.py    capture loop: interval math, timestamps, key building
-  uploader.py   queue + uploader thread (boto3, backoff, counters)
+  uploader.py   queue + uploader thread (sign + HTTPS PUT, backoff, counters)
   viewer.py     http.server thread: /, /latest.jpg, /healthz
   main.py       wiring, signal handling (clean SIGTERM stop for systemd)
 systemd/
