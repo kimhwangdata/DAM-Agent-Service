@@ -26,10 +26,12 @@
 
 ### 0.1 Repository skeleton
 
-- [ ] `git init` this repo (it is not a git repository yet); first commit =
-      current docs + CLAUDE.md + legacy reference.
-- [ ] `.gitignore`: `.env.*` (except `.env.example`), `__pycache__/`,
-      `.venv/`, captured images, local queue dirs.
+- [x] `git init` this repo; first commit pushed to
+      **https://github.com/kimhwangdata/DAM-Agent-Service.git** (branch
+      `main`, rebased onto the remote's auto-generated README). Note:
+      `legacy-rpi-camera/` is gitignored — it stays local reference only.
+- [x] `.gitignore`: `.env.*` (except `.env.example`), `__pycache__/`,
+      `.venv/`, captured images (`captures/`), local queue (`queue/`).
 - [ ] Create target layout from CLAUDE.md: `agent/` (empty package with
       `__init__.py`), `video-builder/`, `systemd/`, `scripts/`, `tests/`
       (placeholder test so pytest runs green).
