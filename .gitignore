@@ -1,0 +1,19 @@
+# python
+*.pyc
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# stage env files — only .env.example is committed (real keys live in these)
+.env
+.env.*
+!.env.example
+.env*.local
+
+# local capture data (never commit captured images or the upload queue)
+captures/
+queue/
+
+# Project specific
+legacy-rpi-camera/
