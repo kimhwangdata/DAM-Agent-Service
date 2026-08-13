@@ -68,6 +68,8 @@ video-builder/      AWS Lambda video builder — handler, ffmpeg invocation, IaC
                     config (packaging: ffmpeg layer or container image — see ADR)
 upload-signer/      AWS Lambda issuing presigned upload URLs to devices
                     (ADR-0003 — devices hold app tokens, never AWS credentials)
+agent-manager/      Fleet operations: agent-api Lambda (heartbeat/desired state,
+                    operator API) + static manager UI (docs/design/02-agent-manager.md)
 systemd/            Unit files: agent service (+ timer if used) installed on the Pi
 scripts/            deploy.sh / deploy.ps1 (rsync/scp over SSH + service restart),
                     provisioning helpers (enable camera, install deps on the Pi),
@@ -141,9 +143,10 @@ logic locally against local files or mocked S3.
 - Dates and times in image keys are **device-local** (device's IANA timezone
   from config), so one day-folder listing is exactly one video's input for
   the builder, sorted by filename.
-- Daily videos go to `videos/{LOCATION_ID}-{YYYY-MM-DD}.mp4`
-  (date in the device's local timezone) — the naming contract the
-  days-in-a-minute webapp's pool sync/assign depends on.
+- Daily videos go to `videos/{location_id}/{LOCATION_ID}-{YYYY-MM-DD}.mp4`
+  (per-location subfolder like `images/`; date in the device's local
+  timezone) — the **basename** is the naming contract the days-in-a-minute
+  webapp's pool sync/assign depends on.
 - **Still retention**: 30 days in `knh-dam-store`, then only the Glacier
   archive copy in bucket `knh-dam-backup` (same `images/` layout) remains.
   The builder never deletes images.

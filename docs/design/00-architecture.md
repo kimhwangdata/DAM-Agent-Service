@@ -28,7 +28,7 @@ per device; a web app lets viewers watch the videos grouped by location.
         each in its own                      │ AWS S3: knh-dam-store        │
         IANA timezone                        │  images/{location_id}/       │
                                              │   {YYYY-MM-DD}/hhmmssfff.jpg │
-                                             │  videos/                     │
+                                             │  videos/{location_id}/       │
                                              │   {LOCATION}-{Y-M-D}.mp4    │
 ┌─────────────────────────────┐              └──────────┬───────────────────┘
 │ video-builder (Part 2)      │   read day's images     │        ▲
@@ -95,6 +95,10 @@ into the daily video.
 - **Trigger — per-Post local time**: each Post's build fires shortly after
   that Post's **local midnight** (legacy ran at 00:01), for the just-finished
   local day. Devices span many timezones, so trigger times differ per Post.
+  With a per-Post **video window** (`02-agent-manager.md` §5.3) the build
+  fires after the window's end instead, and a midnight-crossing window
+  reads the tail of day `D` plus the head of day `D+1`; the default window
+  (00:00→00:00) reduces to the midnight rule.
   Mechanism (one EventBridge Scheduler schedule per Post with
   `ScheduleExpressionTimezone`, vs. an hourly UTC sweep that selects Posts
   that just passed midnight) is an **ADR to be written**.
@@ -105,8 +109,10 @@ into the daily video.
   `-framerate 30 -c:v libx264 -r 30 -pix_fmt yuv420p`, run inside Lambda
   (ffmpeg layer vs. container image — ADR). Lambda `/tmp` (up to 10 GB) must
   hold one day of images plus the output; watch memory and timeout.
-- **Output**: `videos/{LOCATION_ID}-{YYYY-MM-DD}.mp4` in the video pool —
-  this exact naming is the contract the webapp's pool sync/assign depends on.
+- **Output**: `videos/{location_id}/{LOCATION_ID}-{YYYY-MM-DD}.mp4` in the
+  video pool — the **basename** is the naming contract the webapp's pool
+  sync/assign parses; the per-location folder keeps locations separable
+  (§7).
 - **Reliability**: builds are idempotent (same Post+date overwrites the same
   key) and retryable; failures are visible (structured logs, retry/DLQ).
   The builder never deletes source images — retention is lifecycle-managed
@@ -123,12 +129,17 @@ video pool with presigned playback URLs, JWT/RBAC auth; deployed via
 OpenNext + CloudFront). Complete and live on its dev stage. From this
 pipeline's perspective the contract is narrow:
 
-- The builder drops correctly named MP4s into `s3://knh-dam-store/videos/`.
-  (The webapp's pool bucket is configurable via its `STORAGE_BUCKET` env —
-  its dev stage currently points at `csk-allsky/videos/` and will be
-  repointed to `knh-dam-store` when this pipeline goes live.)
+- The builder drops correctly named MP4s into
+  `s3://knh-dam-store/videos/{location_id}/`. (The webapp's pool bucket is
+  configurable via its `STORAGE_BUCKET` env — its dev stage currently
+  points at `csk-allsky/videos/` and will be repointed to `knh-dam-store`
+  when this pipeline goes live.)
 - The webapp discovers them via its pool sync/assign (filename prefix →
-  Location) or, later, direct registration (§4).
+  Location) or, later, direct registration (§4). **Contract note**: the
+  basename shape is unchanged, but the pool now has per-location
+  subfolders — the webapp's pool sync must list `videos/` recursively (or
+  per location prefix) instead of assuming a flat folder; a small webapp
+  change when it repoints to `knh-dam-store`.
 - Each webapp Post carries a `timezone` attribute — the same per-Post
   timezone drives the builder's day boundary; `captured_date` is a plain
   `YYYY-MM-DD` in the Post's local timezone.
@@ -191,12 +202,19 @@ s3://knh-dam-store/                        (private, primary store)
     {location_id}/{YYYY-MM-DD}/{hhmmssfff}.jpg
     {location_id}/{YYYY-MM-DD}/{hhmmssfff}.json   ← metadata sidecar (optional)
   videos/                                  ← builder-writable, webapp-readable
-    {LOCATION_ID}-{YYYY-MM-DD}.mp4
+    {location_id}/{LOCATION_ID}-{YYYY-MM-DD}.mp4
 
 s3://knh-dam-backup/                       (private, long-term archive,
   images/                                   Glacier storage class)
     {location_id}/{YYYY-MM-DD}/{hhmmssfff}.jpg    ← same layout as the store
 ```
+
+- **Videos are foldered by location** (like `images/`): as the fleet grows,
+  one location's videos can be listed, priced, lifecycle-managed, or
+  migrated with a single prefix. The **filename keeps the established
+  `{LOCATION_ID}-{YYYY-MM-DD}.mp4` shape**, so anything that parses the
+  basename (the webapp's prefix→Location matching) is unaffected — only
+  listings must be prefix-aware (§5).
 
 - **Image filename** `hhmmssfff` = capture time of day from
   `strftime("%H%M%S%f")` truncated to milliseconds (9 digits, e.g.
@@ -210,8 +228,8 @@ s3://knh-dam-backup/                       (private, long-term archive,
   storage class Glacier) + a 30-day lifecycle **expiration** rule on
   `knh-dam-store/images/` (mechanism details — replication-at-upload vs. a
   day-30 copy job — in an ADR, §11).
-- **Videos** stay in `knh-dam-store/videos/` indefinitely (they are the
-  product; ~small compared to stills).
+- **Videos** stay in `knh-dam-store/videos/{location_id}/` indefinitely
+  (they are the product; ~small compared to stills).
 
 ## 8. Timezone model
 
