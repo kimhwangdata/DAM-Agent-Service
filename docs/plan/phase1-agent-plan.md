@@ -1,6 +1,6 @@
 # Phase 1 — Capture Agent Implementation Plan
 
-- **Status**: Not started
+- **Status**: In progress (1.1–1.4 done; signer live on AWS)
 - **Date**: 2026-08-13
 - **Based on**: `docs/design/01-agent.md` (all section refs below point there)
 - **Goal**: the `dam-agent` systemd service runs on a bench Pi, capturing on
@@ -15,72 +15,79 @@
 
 ## Prerequisites (from Phase 0)
 
-- [ ] Phase 0 complete: repo skeleton, `pyproject.toml` + pytest/ruff,
-      `.env` stages, `knh-dam-store` bucket, scoped device IAM identity.
-      (If Phase 0 is not finished, do the blocking items first.)
+- [x] Phase 0 complete: repo skeleton, `pyproject.toml` + pytest/ruff,
+      `.env` stages, `knh-dam-store`/`knh-dam-backup` live with lifecycle +
+      Glacier replication. (Per-device IAM identity cancelled by ADR-0003 —
+      the upload-signer in 1.4 replaces it.)
 
 ## Steps
 
 ### 1.1 Config & constants (§3, §7)
 
-- [ ] `agent/config.py`: full settings per the §7 table (required keys fail
-      loudly; defaults per table), plus derived `interval_s` from
-      `VIDEO_MINUTES` using the legacy formula (§3).
-- [ ] Tests: interval table (1→48 s, 2→24 s, 3→16 s), required-key
-      validation, `CAPTURE_SIZE` parsing.
+- [x] `agent/config.py`: full settings per the §7 table — required keys now
+      include `UPLOAD_SIGNER_URL` + `DEVICE_TOKEN` (ADR-0003); legacy-formula
+      constants (`FPS=30`, `FRAME_PER_MINUTE`, `CAPTURE_DURATION_SECONDS`)
+      and derived `Settings.interval_s`; `VIDEO_MINUTES >= 1` validated.
+- [x] Tests: interval table (1→48 s, 2→24 s, 3→16 s parametrized),
+      `VIDEO_MINUTES=0` rejected, required-key validation, `CAPTURE_SIZE`
+      parsing — 10 tests green, ruff clean; smoke run shows
+      `interval_s=48` on the test stage.
 
 ### 1.2 Camera interface (§2)
 
-- [ ] `agent/camera.py`: `CameraSource` protocol
+- [x] `agent/camera.py`: `CameraSource` protocol
       (`start / capture_jpeg -> (bytes, datetime, metadata) / stop`).
-- [ ] `FakeCamera`: generated image with timestamp text (Pillow, test-only
-      dep) — works on Windows.
-- [ ] `Picamera2Camera`: preview configuration, `BGR888`, `CAPTURE_SIZE`,
-      JPEG to `BytesIO` (no files) — import guarded so the module loads on
-      Windows without picamera2.
-- [ ] Tests: FakeCamera returns decodable JPEG + aware timestamp.
+- [x] `FakeCamera`: generated image with timestamp text (Pillow, dev-only,
+      imported lazily) — works on Windows.
+- [x] `Picamera2Camera`: preview configuration, `BGR888`, size from config,
+      JPEG to `BytesIO` via `capture_request().save(...)` (no files);
+      picamera2 imported inside `start()` → module loads on Windows and
+      raises a clean `CameraError` if unavailable.
+- [x] Tests: FakeCamera JPEG decodable (format/size), timezone-aware
+      timestamp, use-before-start errors, Windows import guard —
+      13 tests green, ruff clean.
 
 ### 1.3 Capture loop (§4)
 
-- [ ] `agent/capture.py`: drift-compensated loop
-      (`sleep(max(0, interval_s - capture_duration))`), timestamps in the
-      configured IANA timezone, S3 key building
-      (`images/{location_id}/{YYYY-MM-DD}/{hhmmssfff}.jpg`,
-      `%H%M%S%f` → milliseconds), ULID per capture, non-blocking queue put.
-- [ ] Tests: key formatting around midnight rollover (fixed tz fixtures),
-      hhmmssfff truncation, pacing math (mocked clock — no real sleeps).
+- [x] `agent/capture.py`: `CaptureItem` (jpeg, aware local timestamp, ULID,
+      key, camera metadata), pure `format_hhmmssfff`/`build_key`, and
+      `CaptureLoop` with drift-compensated pacing
+      (`sleep(max(0, interval_s - dur))`), injectable clock/sleep, and a
+      capture-failure guard (loop keeps pacing after an exception).
+- [x] Tests: hhmmssfff truncation + zero-padding, key shape, midnight
+      rollover to the new day folder, ULID uniqueness (26 chars), sink
+      receives the item, pacing 48−3→45 s / never negative, failure
+      doesn't kill the loop — 22 tests green, ruff clean.
 
 ### 1.4 Upload path — signer + queue + uploader (§2, §5, ADR-0003)
 
 Cloud side first (the agent needs it to upload):
 
-- [ ] `upload-signer/handler.py`: Lambda behind a function URL —
-      `POST /sign` verifies the device token hash against the
-      `knh-dam-devices` DynamoDB table (`location_id`, `token_hash`,
-      `enabled`), derives the prefix from the token identity, validates
-      key shape (`{YYYY-MM-DD}/{hhmmssfff}.jpg`) and content type, returns
-      a presigned PUT URL (~60 s) + final key. 401/403 on bad/disabled
-      token; 400 on bad key shape.
-- [ ] Deploy script: create table, execution role
-      (`scripts/aws/device-upload-policy.json` = PutObject on `images/*`
-      + presign, DynamoDB read), Lambda + function URL (profile `knh-dev`).
-- [ ] `scripts/aws/issue_device_token.py`: generate token, store hash in
-      the table, print once for the device's `.env.{STAGE}`.
-- [ ] Signer tests (Windows): token verify, prefix derivation (request
-      cannot override location), key-shape rejection, disabled-device 403
-      (DynamoDB/S3 mocked).
+- [x] `upload-signer/handler.py`: pure `handle()` (clients injected) +
+      `lambda_handler`; token-hash lookup in `knh-dam-devices`, prefix
+      derived from the token identity, strict date/filename/content-type/
+      metadata validation, presigned PUT (60 s TTL). 401/403/400/404/405.
+- [x] Deploy script `scripts/aws/deploy_upload_signer.py` (idempotent):
+      table + execution role + Lambda; **deployed and live** at
+      `https://39o7oq9hjg.execute-api.ap-northeast-2.amazonaws.com`.
+- [x] `scripts/aws/issue_device_token.py`: issue (revokes previous token
+      for the location), plus `--disable` kill-switch.
+- [x] Signer tests: 13 (happy path, prefix-from-token, 401/403,
+      7 bad-shape cases incl. path traversal, path/method errors).
+- [x] **Live smoke test passed**: sign 200 → HTTPS PUT 200 → object in S3
+      with `x-amz-meta-*` → bad token 401, bad filename 400 → cleaned up.
 
 Device side:
 
-- [ ] `agent/uploader.py`: bounded `queue.Queue(QUEUE_MAX)`; drop-oldest on
-      overflow with counter; uploader thread doing the two-step §5 flow
-      with stdlib `urllib` (sign → PUT with `ContentType` +
-      `x-amz-meta-*`), exponential backoff (1 s → 60 s cap), fresh presign
-      per retry, re-queue-at-front on failure; counters
-      (uploaded / dropped / failed / attempts).
-- [ ] Tests: overflow drop-oldest, retry/backoff with a mocked signer +
-      mocked PUT (no network), expired-URL retry path, counters,
-      capture-side put never blocks.
+- [x] `agent/uploader.py`: bounded queue with drop-oldest + counter,
+      uploader thread doing sign → PUT via stdlib `urllib` (injectable
+      `urlopen`/`sleep`), exponential backoff 1→60 s, fresh presign per
+      retry (head-item retry-in-place ≡ re-queue-at-front with one
+      thread), counters + `queue_depth` for `/healthz`, bounded drain in
+      `stop()`.
+- [x] Tests: 6 (overflow drop-oldest/never blocks, sign body + PUT header
+      contents, sign-failure backoff sequence, expired-PUT → fresh
+      presign, backoff cap at 60 s, stop aborts retry). Suite: 41 green.
 
 ### 1.5 HTTP viewer (§6)
 
@@ -154,4 +161,14 @@ Device side:
 
 ## Deviations / decisions during execution
 
-(fill in as steps complete)
+- 1.2: Windows needs the `tzdata` package for `zoneinfo` — added to deps
+  with a `platform_system == 'Windows'` marker (Pi uses system tzdata).
+- 1.4: a public Lambda **function URL** stubbornly returned the edge-level
+  403 "Function URL authorization issues" despite a correct resource
+  policy (AuthType NONE, `lambda:InvokeFunctionUrl`, principal `*`) —
+  direct invoke worked, recreation didn't help. Pivoted to **API Gateway
+  HTTP API** (payload v2 = same event shape; handler unchanged); worked
+  immediately. Function URL config removed.
+- 1.4: signer smoke-tested live with a real `TEST` token; test object
+  deleted afterwards. The `TEST` device row remains in `knh-dam-devices`
+  (its plaintext token was not retained; re-issue before reusing).

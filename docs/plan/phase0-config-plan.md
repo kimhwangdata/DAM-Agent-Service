@@ -1,7 +1,7 @@
 # Phase 0 — Config & Groundwork Plan
 
-- **Status**: In progress (0.1–0.5 done — device-identity item cancelled by
-  ADR-0003; remaining: 0.6 verification)
+- **Status**: **Complete** (2026-08-13; device-identity item cancelled by
+  ADR-0003 — replaced by the upload-signer built in Phase 1)
 - **Date**: 2026-08-13
 - **Based on**: `docs/design/00-architecture.md` (esp. §3 agent, §7 storage,
   §10 environments, §11 open questions)
@@ -96,16 +96,20 @@
 
 ### 0.6 Verification (phase exit criteria)
 
-- [ ] `pytest` green on Windows; `ruff` clean.
-- [ ] `python -c "from agent.config import settings"`-style smoke run loads
-      the test stage.
-- [ ] Buckets reachable with `knh-dev`; direct anonymous/public access to
-      `knh-dam-store` denied. (The device-credential allow/deny test moved
-      to Phase 1 with the upload-signer — ADR-0003; the signer's
-      prefix-scoping test replaces it.)
-- [ ] Lifecycle + archive rules visible on the buckets
-      (`aws s3api get-bucket-lifecycle-configuration --profile knh-dev`).
-- [ ] Both ADRs accepted and indexed.
+- [x] `pytest` green on Windows (6 passed); `ruff` clean (agent, tests,
+      scripts).
+- [x] Config smoke run: `STAGE=test` loads `.env.test` →
+      `location_id=TEST`, `s3_bucket=knh-dam-store`.
+- [x] Buckets reachable with `knh-dev` (`head_bucket` OK on both);
+      anonymous HTTPS list of `knh-dam-store` → **HTTP 403** (denied).
+      (Device-credential allow/deny test moved to Phase 1's signer tests —
+      ADR-0003.)
+- [x] Rules verified live via boto3: lifecycle `expire-images-30d` (30 d,
+      prefix `images/`) + `cleanup-noncurrent-and-markers` (noncurrent 1 d,
+      expired delete markers); replication `images-to-backup-glacier`
+      Enabled → `knh-dam-backup`, storage class **GLACIER**.
+- [x] Three ADRs (0001 picamera2, 0002 archive, 0003 presigned upload)
+      Accepted and indexed in `docs/design/adr/README.md`.
 
 ## Deviations / decisions during execution
 

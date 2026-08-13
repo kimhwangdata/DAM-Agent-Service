@@ -19,7 +19,18 @@ DEFAULT_CAPTURE_SIZE = (1280, 720)
 DEFAULT_QUEUE_MAX = 64
 DEFAULT_VIEWER_PORT = 8080
 
-_REQUIRED_KEYS = ("LOCATION_ID", "DEVICE_ID", "TIMEZONE")
+# Capture cadence (design 01-agent.md §3 — legacy capture-24h.py formula).
+FPS = 30  # matches the video builder's -framerate 30
+FRAME_PER_MINUTE = 60 * FPS
+CAPTURE_DURATION_SECONDS = 24 * 60 * 60
+
+_REQUIRED_KEYS = (
+    "LOCATION_ID",
+    "DEVICE_ID",
+    "TIMEZONE",
+    "UPLOAD_SIGNER_URL",
+    "DEVICE_TOKEN",
+)
 
 
 class ConfigError(Exception):
@@ -32,12 +43,19 @@ class Settings:
     location_id: str
     device_id: str
     timezone: str
+    upload_signer_url: str
+    device_token: str
     s3_bucket: str = DEFAULT_S3_BUCKET
     s3_image_prefix: str = DEFAULT_S3_IMAGE_PREFIX
     video_minutes: int = DEFAULT_VIDEO_MINUTES
     capture_size: tuple[int, int] = DEFAULT_CAPTURE_SIZE
     queue_max: int = DEFAULT_QUEUE_MAX
     viewer_port: int = DEFAULT_VIEWER_PORT
+
+    @property
+    def interval_s(self) -> int:
+        """Seconds between captures — one day becomes video_minutes of video."""
+        return CAPTURE_DURATION_SECONDS // (FRAME_PER_MINUTE * self.video_minutes)
 
 
 def _find_env_file(stage: str) -> Path:
@@ -73,14 +91,20 @@ def load_settings(stage: str | None = None, env_file: Path | None = None) -> Set
     if missing:
         raise ConfigError(f"missing required keys in {path}: {', '.join(missing)}")
 
+    video_minutes = int(values.get("VIDEO_MINUTES", DEFAULT_VIDEO_MINUTES))
+    if video_minutes < 1:
+        raise ConfigError(f"VIDEO_MINUTES must be >= 1, got {video_minutes}")
+
     return Settings(
         stage=stage,
         location_id=values["LOCATION_ID"],
         device_id=values["DEVICE_ID"],
         timezone=values["TIMEZONE"],
+        upload_signer_url=values["UPLOAD_SIGNER_URL"],
+        device_token=values["DEVICE_TOKEN"],
         s3_bucket=values.get("S3_BUCKET", DEFAULT_S3_BUCKET),
         s3_image_prefix=values.get("S3_IMAGE_PREFIX", DEFAULT_S3_IMAGE_PREFIX),
-        video_minutes=int(values.get("VIDEO_MINUTES", DEFAULT_VIDEO_MINUTES)),
+        video_minutes=video_minutes,
         capture_size=(
             _parse_capture_size(values["CAPTURE_SIZE"])
             if "CAPTURE_SIZE" in values

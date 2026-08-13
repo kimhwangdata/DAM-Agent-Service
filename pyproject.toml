@@ -11,6 +11,7 @@ dependencies = [
     "boto3",
     "python-dotenv",
     "python-ulid",
+    "tzdata; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]
