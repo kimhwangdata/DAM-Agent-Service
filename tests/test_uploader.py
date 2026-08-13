@@ -45,11 +45,12 @@ class FakeResponse(io.BytesIO):
 class FakeHttp:
     """Callable standing in for urllib.request.urlopen."""
 
-    def __init__(self, fail_signs=0, fail_puts=0):
+    def __init__(self, fail_signs=0, fail_puts=0, sign_answer=None):
         self.sign_requests = []
         self.put_requests = []
         self.fail_signs = fail_signs
         self.fail_puts = fail_puts
+        self.sign_answer = sign_answer  # override /sign response dict or HTTPError
 
     def __call__(self, request, timeout=None):
         if request.full_url.endswith("/sign"):
@@ -57,9 +58,17 @@ class FakeHttp:
             if self.fail_signs > 0:
                 self.fail_signs -= 1
                 raise urllib.error.URLError("signer unreachable")
+            if isinstance(self.sign_answer, Exception):
+                raise self.sign_answer
+            if self.sign_answer is not None:
+                return FakeResponse(json.dumps(self.sign_answer).encode())
             return FakeResponse(
                 json.dumps(
-                    {"url": "https://s3.example/put", "key": "signed/key.jpg"}
+                    {
+                        "status": "ok",
+                        "url": "https://s3.example/put",
+                        "key": "signed/key.jpg",
+                    }
                 ).encode()
             )
         self.put_requests.append(request)
@@ -110,8 +119,75 @@ def test_upload_success_sends_sign_body_and_put_headers():
     assert uploader.counters() == {
         "uploaded": 1,
         "dropped": 0,
+        "skipped": 0,
         "failed_attempts": 0,
     }
+    assert sign["device_id"] == "dam-test"
+    assert "status" not in sign  # no status_fn attached in this test
+
+
+def test_sign_body_includes_status_when_status_fn_set():
+    http = FakeHttp()
+    uploader = make_uploader(http)
+    uploader.status_fn = lambda: {"uploaded": 42, "thermal_state": "ok"}
+    uploader.process(make_item())
+    assert http.sign_requests[0]["status"] == {
+        "uploaded": 42, "thermal_state": "ok"
+    }
+
+
+def test_paused_answer_is_skip_not_retry():
+    http = FakeHttp(sign_answer={"status": "paused"})
+    sleeps = []
+    uploader = make_uploader(http, sleeps)
+    assert uploader.process(make_item()) is True
+    assert uploader.counters()["skipped"] == 1
+    assert uploader.counters()["uploaded"] == 0
+    assert uploader.counters()["failed_attempts"] == 0
+    assert sleeps == []  # no backoff
+    assert len(http.sign_requests) == 1  # no retry
+    assert http.put_requests == []
+
+
+def test_unassigned_409_is_skip_not_retry():
+    error = urllib.error.HTTPError(
+        "https://signer.example/sign", 409, "conflict", None,
+        io.BytesIO(json.dumps({"error": "unassigned"}).encode()),
+    )
+    http = FakeHttp(sign_answer=error)
+    sleeps = []
+    uploader = make_uploader(http, sleeps)
+    assert uploader.process(make_item()) is True
+    assert uploader.counters()["skipped"] == 1
+    assert sleeps == []
+
+
+def test_other_409_still_retries():
+    def fresh_error():
+        return urllib.error.HTTPError(
+            "https://signer.example/sign", 409, "conflict", None,
+            io.BytesIO(json.dumps({"error": "something-else"}).encode()),
+        )
+
+    http = FakeHttp(sign_answer=fresh_error())
+    uploader = Uploader(
+        SETTINGS, urlopen=http, sleep=lambda s: uploader._stop.set()
+    )
+    assert uploader.process(make_item()) is False  # stopped mid-retry
+    assert uploader.counters()["failed_attempts"] == 1
+
+
+def test_heartbeat_signs_and_swallows_errors():
+    http = FakeHttp(sign_answer={"status": "paused"})
+    uploader = make_uploader(http)
+    uploader.status_fn = lambda: {"thermal_state": "paused", "temp_c": 76.0}
+    uploader.send_heartbeat()  # paused answer must not raise
+    assert http.sign_requests[0]["status"]["thermal_state"] == "paused"
+
+    broken = FakeHttp(fail_signs=1)
+    uploader2 = make_uploader(broken)
+    uploader2.send_heartbeat()  # network error must not raise
+    assert broken.put_requests == []
 
 
 def test_sign_failure_retries_with_backoff():

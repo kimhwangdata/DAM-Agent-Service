@@ -15,9 +15,12 @@ import logging
 import queue
 import threading
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Callable
-from datetime import UTC
+from datetime import UTC, datetime
+from typing import Any
+from zoneinfo import ZoneInfo
 
 from agent.capture import CaptureItem, format_hhmmssfff
 from agent.config import Settings
@@ -29,6 +32,14 @@ BACKOFF_CAP_S = 60.0
 CONTENT_TYPE = "image/jpeg"
 SIGN_TIMEOUT_S = 30
 PUT_TIMEOUT_S = 60
+
+
+class SkipUpload(Exception):
+    """Server said the frame should be skipped (paused/unassigned) — §5."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 class Uploader:
@@ -48,7 +59,11 @@ class Uploader:
         self._lock = threading.Lock()
         self._uploaded = 0
         self._dropped = 0
+        self._skipped = 0
         self._failed_attempts = 0
+        # Set by Agent after construction; included in every /sign body so
+        # the sign call doubles as the fleet heartbeat (design 02 §5).
+        self.status_fn: Callable[[], dict[str, Any]] | None = None
 
     # ── capture side (never blocks) ──────────────────────────────────────────
 
@@ -79,6 +94,7 @@ class Uploader:
             return {
                 "uploaded": self._uploaded,
                 "dropped": self._dropped,
+                "skipped": self._skipped,
                 "failed_attempts": self._failed_attempts,
             }
 
@@ -121,6 +137,11 @@ class Uploader:
                 log.info("uploaded key=%s attempt=%d depth=%d",
                          key, attempt, self._queue.qsize())
                 return True
+            except SkipUpload as skip:
+                with self._lock:
+                    self._skipped += 1
+                log.info("skipped key=%s reason=%s", item.key, skip.reason)
+                return True  # deliberate skip — not a failure, no retry
             except Exception as exc:
                 with self._lock:
                     self._failed_attempts += 1
@@ -132,6 +153,40 @@ class Uploader:
                 backoff = min(BACKOFF_CAP_S, backoff * 2)
         return False
 
+    def _sign(self, date: str, filename: str, metadata: dict) -> dict:
+        """POST /sign; raises SkipUpload for paused/unassigned answers."""
+        body: dict[str, Any] = {
+            "token": self._settings.device_token,
+            "date": date,
+            "filename": filename,
+            "content_type": CONTENT_TYPE,
+            "metadata": metadata,
+            "device_id": self._settings.device_id,
+        }
+        if self.status_fn is not None:
+            body["status"] = self.status_fn()
+        request = urllib.request.Request(
+            self._settings.upload_signer_url.rstrip("/") + "/sign",
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with self._urlopen(request, timeout=SIGN_TIMEOUT_S) as response:
+                signed = json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code == 409:
+                try:
+                    error = json.loads(exc.read()).get("error", "")
+                except (json.JSONDecodeError, OSError):
+                    error = ""
+                if error == "unassigned":
+                    raise SkipUpload("unassigned") from exc
+            raise
+        if signed.get("status") == "paused":
+            raise SkipUpload("paused")
+        return signed
+
     def _upload_once(self, item: CaptureItem) -> str:
         metadata = {
             "ulid": item.ulid,
@@ -139,23 +194,11 @@ class Uploader:
             "captured-utc": item.captured_at.astimezone(UTC).isoformat(),
             "timezone": self._settings.timezone,
         }
-        sign_request = urllib.request.Request(
-            self._settings.upload_signer_url.rstrip("/") + "/sign",
-            data=json.dumps(
-                {
-                    "token": self._settings.device_token,
-                    "date": item.captured_at.strftime("%Y-%m-%d"),
-                    "filename": f"{format_hhmmssfff(item.captured_at)}.jpg",
-                    "content_type": CONTENT_TYPE,
-                    "metadata": metadata,
-                }
-            ).encode("utf-8"),
-            method="POST",
-            headers={"Content-Type": "application/json"},
+        signed = self._sign(
+            item.captured_at.strftime("%Y-%m-%d"),
+            f"{format_hhmmssfff(item.captured_at)}.jpg",
+            metadata,
         )
-        with self._urlopen(sign_request, timeout=SIGN_TIMEOUT_S) as response:
-            signed = json.loads(response.read())
-
         headers = {"Content-Type": CONTENT_TYPE}
         headers.update({f"x-amz-meta-{k}": v for k, v in metadata.items()})
         put_request = urllib.request.Request(
@@ -164,3 +207,18 @@ class Uploader:
         with self._urlopen(put_request, timeout=PUT_TIMEOUT_S):
             pass
         return signed["key"]
+
+    def send_heartbeat(self) -> None:
+        """Status-only /sign (URL unused) — keeps the manager informed
+        while the agent is thermally paused (§5.2). Never raises."""
+        now = datetime.now(ZoneInfo(self._settings.timezone))
+        try:
+            self._sign(
+                now.strftime("%Y-%m-%d"),
+                f"{format_hhmmssfff(now)}.jpg",
+                {"device-id": self._settings.device_id},
+            )
+        except SkipUpload:
+            pass  # paused/unassigned — status was still recorded server-side
+        except Exception as exc:
+            log.warning("heartbeat failed error=%s", exc)

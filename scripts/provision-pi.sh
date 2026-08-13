@@ -21,5 +21,10 @@ fi
 "$DEST/.venv/bin/pip" install --quiet --upgrade \
     python-dotenv python-ulid typing-extensions
 
+# thermal last-resort shutdown (design 02 §5.2) — passwordless poweroff only
+echo "$USER ALL=(root) NOPASSWD: /sbin/poweroff" \
+    | sudo tee /etc/sudoers.d/dam-agent-poweroff > /dev/null
+sudo chmod 440 /etc/sudoers.d/dam-agent-poweroff
+
 echo "provisioned: $DEST (python: $("$DEST/.venv/bin/python" --version))"
 echo "next: put the stage env at $DEST/.env.dev, then scripts/deploy.sh <pi>"

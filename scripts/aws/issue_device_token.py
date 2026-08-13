@@ -5,9 +5,13 @@ prints the plaintext token ONCE (put it in the device's .env.{STAGE} as
 DEVICE_TOKEN; it is never stored anywhere else). Re-running for the same
 location replaces the old token (old one stops working).
 
-Run:  python scripts/aws/issue_device_token.py LOCATION_ID
+Run:  python scripts/aws/issue_device_token.py LOCATION_ID --device-id DEVICE_ID
 Disable a device (kill-switch):
       python scripts/aws/issue_device_token.py LOCATION_ID --disable
+
+Phase 2: tokens belong to a DEVICE (02-agent-manager.md §4); the location
+comes from the agents-table assignment. The webapp UI will replace this
+script eventually.
 """
 
 from __future__ import annotations
@@ -26,9 +30,17 @@ TABLE = "knh-dam-devices"
 
 def main() -> None:
     if len(sys.argv) < 2:
-        sys.exit("usage: issue_device_token.py LOCATION_ID [--disable]")
+        sys.exit(
+            "usage: issue_device_token.py LOCATION_ID"
+            " [--device-id DEVICE_ID] [--disable]"
+        )
     location_id = sys.argv[1]
     disable = "--disable" in sys.argv[2:]
+    device_id = None
+    if "--device-id" in sys.argv:
+        device_id = sys.argv[sys.argv.index("--device-id") + 1]
+    if not disable and not device_id:
+        sys.exit("--device-id is required when issuing (tokens belong to devices)")
 
     table = boto3.Session(profile_name=PROFILE, region_name=REGION).resource(
         "dynamodb"
@@ -58,7 +70,8 @@ def main() -> None:
     table.put_item(
         Item={
             "token_hash": hashlib.sha256(token.encode()).hexdigest(),
-            "location_id": location_id,
+            "device_id": device_id,
+            "location_id": location_id,  # legacy/informational only
             "enabled": True,
             "created_at": datetime.now(UTC).isoformat(),
         }

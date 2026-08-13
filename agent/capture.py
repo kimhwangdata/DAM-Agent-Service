@@ -56,12 +56,14 @@ class CaptureLoop:
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        gate: Callable[[], bool] | None = None,
     ) -> None:
         self._camera = camera
         self._settings = settings
         self._sink = sink
         self._clock = clock
         self._sleep = sleep
+        self._gate = gate  # returns False to skip this interval (thermal pause)
         self._running = False
 
     def capture_once(self) -> CaptureItem:
@@ -72,7 +74,8 @@ class CaptureLoop:
             ulid=str(ULID()),
             key=build_key(
                 self._settings.s3_image_prefix,
-                self._settings.location_id,
+                # display-only: the signer's assignment is authoritative (§6)
+                self._settings.location_id or "unassigned",
                 captured_at,
             ),
             camera_metadata=metadata,
@@ -90,9 +93,12 @@ class CaptureLoop:
         while self._running:
             started = self._clock()
             try:
-                item = self.capture_once()
-                duration = self._clock() - started
-                log.info("capture key=%s dur=%.3fs", item.key, duration)
+                if self._gate is None or self._gate():
+                    item = self.capture_once()
+                    duration = self._clock() - started
+                    log.info("capture key=%s dur=%.3fs", item.key, duration)
+                else:
+                    duration = self._clock() - started
             except Exception:
                 duration = self._clock() - started
                 log.exception("capture failed dur=%.3fs", duration)

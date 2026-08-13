@@ -28,6 +28,8 @@ class CameraSource(Protocol):
 class FakeCamera:
     """Test/dev camera: a generated image with the capture time drawn in."""
 
+    model = "fake"
+
     def __init__(self, tz: tzinfo, size: tuple[int, int] = (1280, 720)) -> None:
         self._tz = tz
         self._size = size
@@ -56,6 +58,8 @@ class FakeCamera:
 class Picamera2Camera:
     """Real camera via picamera2 — preview configuration, BGR888 (legacy)."""
 
+    model: str | None = None
+
     def __init__(self, tz: tzinfo, size: tuple[int, int] = (1280, 720)) -> None:
         self._tz = tz
         self._size = size
@@ -74,6 +78,7 @@ class Picamera2Camera:
         cam.start()
         time.sleep(1)  # let AE/AWB settle after start, as the legacy code did
         self._cam = cam
+        self.model = cam.camera_properties.get("Model")
 
     def capture_jpeg(self) -> tuple[bytes, datetime, dict[str, Any]]:
         if self._cam is None:

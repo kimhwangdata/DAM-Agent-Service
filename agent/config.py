@@ -24,8 +24,19 @@ FPS = 30  # matches the video builder's -framerate 30
 FRAME_PER_MINUTE = 60 * FPS
 CAPTURE_DURATION_SECONDS = 24 * 60 * 60
 
+# Thermal protection (design 02-agent-manager.md §5.2). Bench reality:
+# a Pi 3 in an enclosure idles ~73 C, so warn/pause/resume sit 5 C above
+# the first draft; pause equals the firmware's own soft-throttle point.
+DEFAULT_TEMP_WARN_C = 75.0
+DEFAULT_TEMP_PAUSE_C = 80.0
+DEFAULT_TEMP_RESUME_C = 75.0
+DEFAULT_TEMP_SHUTDOWN_C = 85.0
+DEFAULT_TEMP_SHUTDOWN_ENABLED = False  # remote devices must not strand themselves
+TEMP_SHUTDOWN_CONSECUTIVE = 3
+
+# LOCATION_ID is optional since phase 2: the manager assigns locations
+# (02-agent-manager.md §6); the signer builds authoritative keys.
 _REQUIRED_KEYS = (
-    "LOCATION_ID",
     "DEVICE_ID",
     "TIMEZONE",
     "UPLOAD_SIGNER_URL",
@@ -40,17 +51,22 @@ class ConfigError(Exception):
 @dataclass(frozen=True)
 class Settings:
     stage: str
-    location_id: str
     device_id: str
     timezone: str
     upload_signer_url: str
     device_token: str
+    location_id: str | None = None  # display-only; assignment is authoritative
     s3_bucket: str = DEFAULT_S3_BUCKET
     s3_image_prefix: str = DEFAULT_S3_IMAGE_PREFIX
     video_minutes: int = DEFAULT_VIDEO_MINUTES
     capture_size: tuple[int, int] = DEFAULT_CAPTURE_SIZE
     queue_max: int = DEFAULT_QUEUE_MAX
     viewer_port: int = DEFAULT_VIEWER_PORT
+    temp_warn_c: float = DEFAULT_TEMP_WARN_C
+    temp_pause_c: float = DEFAULT_TEMP_PAUSE_C
+    temp_resume_c: float = DEFAULT_TEMP_RESUME_C
+    temp_shutdown_c: float = DEFAULT_TEMP_SHUTDOWN_C
+    temp_shutdown_enabled: bool = DEFAULT_TEMP_SHUTDOWN_ENABLED
 
     @property
     def interval_s(self) -> int:
@@ -97,7 +113,7 @@ def load_settings(stage: str | None = None, env_file: Path | None = None) -> Set
 
     return Settings(
         stage=stage,
-        location_id=values["LOCATION_ID"],
+        location_id=values.get("LOCATION_ID") or None,
         device_id=values["DEVICE_ID"],
         timezone=values["TIMEZONE"],
         upload_signer_url=values["UPLOAD_SIGNER_URL"],
@@ -112,4 +128,14 @@ def load_settings(stage: str | None = None, env_file: Path | None = None) -> Set
         ),
         queue_max=int(values.get("QUEUE_MAX", DEFAULT_QUEUE_MAX)),
         viewer_port=int(values.get("VIEWER_PORT", DEFAULT_VIEWER_PORT)),
+        temp_warn_c=float(values.get("TEMP_WARN_C", DEFAULT_TEMP_WARN_C)),
+        temp_pause_c=float(values.get("TEMP_PAUSE_C", DEFAULT_TEMP_PAUSE_C)),
+        temp_resume_c=float(values.get("TEMP_RESUME_C", DEFAULT_TEMP_RESUME_C)),
+        temp_shutdown_c=float(
+            values.get("TEMP_SHUTDOWN_C", DEFAULT_TEMP_SHUTDOWN_C)
+        ),
+        temp_shutdown_enabled=(
+            str(values.get("TEMP_SHUTDOWN_ENABLED", DEFAULT_TEMP_SHUTDOWN_ENABLED))
+            .lower() in ("1", "true", "yes")
+        ),
     )

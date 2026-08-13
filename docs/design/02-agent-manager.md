@@ -100,6 +100,18 @@ grows into it — same stack, same deploy pattern) and the static UI.
 
 ## 4. Data model (DynamoDB)
 
+**Why two device tables, and why separate from the webapp's table**
+(decided): the device tables are **never** merged into the webapp's
+`knh-time-lapse-*` single table — different writers, lifecycles, and IAM
+boundaries; the webapp accesses `knh-dam-*` as an explicit external
+contract. Within the device domain, single-table design buys nothing
+here: there are no item collections (every access is a point get, ~two
+either way in `/sign`) and the fleet is small. The deciding factor is
+IAM: DynamoDB cannot restrict writes per-attribute, so the **credential
+store stays its own table** with minimal grants (signer reads; only the
+rotation endpoint writes) — fleet-record editors can never touch token
+hashes. Both tables are on-demand (no idle cost).
+
 **`knh-dam-devices`** (existing) — auth only: `token_hash` (PK),
 `enabled`, `created_at`, plus **`device_id`** (a token belongs to a
 device; location comes from the agents table — §6).
@@ -235,15 +247,17 @@ Graduated response (agent-side, thresholds from device env, defaults):
 
 | Threshold | Action |
 | --------- | ------ |
-| `TEMP_WARN` = **70 °C** | `thermal_state: "warn"` in reports → health badge in the manager; capture continues |
-| `TEMP_PAUSE` = **75 °C** | agent **pauses capturing itself** (camera load drops, device stays online and reporting); auto-**resume at ≤ 70 °C** (5 °C hysteresis so it doesn't flap) |
+| `TEMP_WARN` = **75 °C** | `thermal_state: "warn"` in reports → health badge in the manager; capture continues |
+| `TEMP_PAUSE` = **80 °C** | agent **pauses capturing itself** (camera load drops, device stays online and reporting); auto-**resume at ≤ 75 °C** (5 °C hysteresis so it doesn't flap) |
 | `TEMP_SHUTDOWN` = **85 °C**, 3 consecutive submits | last-resort OS shutdown (`poweroff`), preceded by a final `/sign` status carrying `event: "thermal-shutdown"` so the manager records why the device went dark. **Default: enabled only for ssh-accessible devices**; remote devices default to pause-only (firmware throttling protects the silicon; shutdown would strand them) |
 
-The requested 75 °C limit is adopted — as the **pause** threshold, not
-shutdown: same protective effect (capture load stops), none of the
-stranding risk. Every thermal event is visible in the manager via
-`reported.temp_c` / `thermal_state`, and a paused-by-heat device shows a
-distinct badge (it is not operator-paused).
+Thresholds were calibrated against bench reality: an enclosed Pi 3 idles
+around 73 °C, so the first-draft 70/75/70 values kept a healthy device
+permanently in `warn` — shifted +5 °C (2026-08-13). Pause (80 °C) now
+coincides with the firmware's own soft-throttle point, which is exactly
+when reducing camera load helps most. Every thermal event is visible in
+the manager via `reported.temp_c` / `thermal_state`, and a
+paused-by-heat device shows a distinct badge (it is not operator-paused).
 
 ### 5.3 Daily video window (frame selection, not a capture gate)
 
@@ -410,7 +424,7 @@ envelope):
 | Corrupt/damaged uploads | upload-monitor tags the objects (builder skips them), `damaged_recent` climbs → `suspect` badge |
 | Disallowed content uploaded (future) | reserved: moderation hook sets `content_flag` → `quarantined` (+ optional auto-pause); evidence keys retained for review |
 | Stolen/compromised device | token revoke: uploads dead instantly; record kept for audit; ssh group additionally reachable for forensics |
-| Device overheating | 70 °C warn badge → 75 °C self-pause (stays online, keeps reporting temp) → auto-resume ≤ 65 °C; sustained 85 °C optional shutdown with a final `thermal-shutdown` event recorded (§5.2) |
+| Device overheating | 75 °C warn badge → 80 °C self-pause (stays online, keeps reporting temp) → auto-resume ≤ 75 °C; sustained 85 °C optional shutdown with a final `thermal-shutdown` event recorded (§5.2) |
 | Frames outside the video window | still captured and uploaded (not an error); simply not selected by the builder; expire via the normal 30-day lifecycle (§5.3) |
 | Manager UI down | devices fully autonomous — capture/upload unaffected |
 

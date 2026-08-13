@@ -71,8 +71,11 @@ def test_end_to_end_capture_publish_upload():
 
     status = agent.status()
     assert status["uploaded"] == 1
-    assert status["location_id"] == "TEST"
+    assert status["device_id"] == "dam-test"
     assert status["interval_s"] == 48
+    assert status["thermal_state"] == "ok"
+    assert status["camera"] == "fake"
+    assert status["agent_version"]
 
     agent.request_stop()
     agent.uploader.stop(drain_seconds=0.5)

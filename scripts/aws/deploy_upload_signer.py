@@ -21,6 +21,7 @@ from botocore.exceptions import ClientError
 PROFILE = "knh-dev"
 REGION = "ap-northeast-2"
 TABLE = "knh-dam-devices"
+AGENTS_TABLE = "knh-dam-agents"
 FUNCTION = "dam-upload-signer"
 ROLE = "dam-upload-signer-role"
 BUCKET = "knh-dam-store"
@@ -33,22 +34,20 @@ iam = session.client("iam")
 lam = session.client("lambda")
 
 
-def ensure_table() -> None:
+def ensure_table(name: str, pk: str) -> None:
     try:
         ddb.create_table(
-            TableName=TABLE,
-            AttributeDefinitions=[
-                {"AttributeName": "token_hash", "AttributeType": "S"}
-            ],
-            KeySchema=[{"AttributeName": "token_hash", "KeyType": "HASH"}],
+            TableName=name,
+            AttributeDefinitions=[{"AttributeName": pk, "AttributeType": "S"}],
+            KeySchema=[{"AttributeName": pk, "KeyType": "HASH"}],
             BillingMode="PAY_PER_REQUEST",
         )
-        print(f"[created] table {TABLE}")
-        ddb.get_waiter("table_exists").wait(TableName=TABLE)
+        print(f"[created] table {name}")
+        ddb.get_waiter("table_exists").wait(TableName=name)
     except ClientError as exc:
         if exc.response["Error"]["Code"] != "ResourceInUseException":
             raise
-        print(f"[ok] table {TABLE} already exists")
+        print(f"[ok] table {name} already exists")
 
 
 def ensure_role() -> str:
@@ -90,6 +89,11 @@ def ensure_role() -> str:
                 "Action": "dynamodb:GetItem",
                 "Resource": f"arn:aws:dynamodb:{REGION}:*:table/{TABLE}",
             },
+            {
+                "Effect": "Allow",
+                "Action": ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+                "Resource": f"arn:aws:dynamodb:{REGION}:*:table/{AGENTS_TABLE}",
+            },
         ],
     }
     iam.put_role_policy(
@@ -111,6 +115,7 @@ def ensure_function(role_arn: str) -> None:
         "Variables": {
             "BUCKET": BUCKET,
             "TABLE": TABLE,
+            "AGENTS_TABLE": AGENTS_TABLE,
             "IMAGE_PREFIX": "images/",
             "URL_TTL_SECONDS": "60",
         }
@@ -187,7 +192,8 @@ def cleanup_function_url() -> None:
 
 
 def main() -> None:
-    ensure_table()
+    ensure_table(TABLE, "token_hash")
+    ensure_table(AGENTS_TABLE, "device_id")
     role_arn = ensure_role()
     ensure_function(role_arn)
     cleanup_function_url()
