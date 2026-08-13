@@ -1,0 +1,21 @@
+[Unit]
+Description=days-in-a-minute capture agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cskim
+# Deploy layout (scripts/deploy): /opt/dam-agent holds the agent package,
+# the stage env file (.env.dev), and the venv (created with
+# --system-site-packages so apt's python3-picamera2 is visible).
+WorkingDirectory=/opt/dam-agent
+Environment=STAGE=dev
+ExecStart=/opt/dam-agent/.venv/bin/python -m agent.main
+Restart=always
+RestartSec=5
+# request_stop drains the upload queue for up to ~10 s
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

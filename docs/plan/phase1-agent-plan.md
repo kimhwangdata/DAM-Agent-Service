@@ -1,6 +1,7 @@
 # Phase 1 — Capture Agent Implementation Plan
 
-- **Status**: In progress (1.1–1.4 done; signer live on AWS)
+- **Status**: In progress (1.1–1.7 done; 1.8 verified except two deferred
+  checks — see §1.8). **dam-agent is live on dam-imx477-2, uploading.**
 - **Date**: 2026-08-13
 - **Based on**: `docs/design/01-agent.md` (all section refs below point there)
 - **Goal**: the `dam-agent` systemd service runs on a bench Pi, capturing on
@@ -91,73 +92,88 @@ Device side:
 
 ### 1.5 HTTP viewer (§6)
 
-- [ ] Latest-frame state: immutable `LatestFrame(jpeg, captured_at, seq)`
-      swapped atomically by the capture loop; a `threading.Condition`
-      notifies waiting streams on each new frame.
-- [ ] `agent/viewer.py` on `ThreadingHTTPServer` (`VIEWER_PORT`,
-      0 = disabled), endpoints:
-      - [ ] `/stream.mjpg` — MJPEG push (`multipart/x-mixed-replace`):
-            send current frame, then wait on the condition and push each
-            new frame; handle client disconnects cleanly (broken pipe →
-            end thread).
-      - [ ] `/latest.jpg` — current frame with `ETag: "{seq}"` and
-            `If-None-Match` → `304`.
-      - [ ] `/` — static HTML: `<img src="/stream.mjpg">` + timestamp
-            (no framework, no build step).
-      - [ ] `/healthz` — JSON: last capture time, `seq`, queue depth,
-            uploaded/dropped/failed counters, uptime, config summary
-            (no secrets).
-- [ ] Tests (stubbed frame state + condition, no real camera, no sleeps):
-      ETag/304 behavior; MJPEG handler emits the boundary + current frame
-      on connect and one new part per notify; disconnect mid-stream does
-      not kill the server; `/healthz` shape.
+- [x] `FrameStore`: immutable `LatestFrame(jpeg, captured_at, seq)` behind
+      a `threading.Condition`; `publish()` notifies all waiting streams,
+      `wait_newer_than(seq, timeout)` lets handlers block without polling.
+- [x] `agent/viewer.py` on `ThreadingHTTPServer` (daemon threads;
+      `Viewer(port=0)` → ephemeral port for tests):
+      - [x] `/stream.mjpg` — MJPEG push with per-part `Content-Length`;
+            current frame sent on connect, new frames pushed on notify;
+            1 s wait slices so threads notice shutdown; broken pipe /
+            reset handled without touching the server.
+      - [x] `/latest.jpg` — `ETag: "{seq}"`, `If-None-Match` → 304; 503
+            before the first frame.
+      - [x] `/` — static HTML page with the stream image + ~5 lines of JS
+            updating the timestamp from `/healthz`.
+      - [x] `/healthz` — JSON merging frame info (`last_capture`, `seq`)
+            with an injected `status_fn()` (queue depth/counters wired in
+            1.6).
+- [x] Tests (6, real server on 127.0.0.1 ephemeral port): 503-before-frame,
+      ETag/304/new-frame-after-304, `/healthz` shape, page embeds stream,
+      404, and a live MJPEG test — current frame on connect, pushed second
+      frame with no client action, then mid-stream disconnect with the
+      server still serving. Suite: 47 green, ruff clean.
 - [ ] On-Pi check happens in 1.8 (browser shows the frame updating each
       interval without any page action).
 
 ### 1.6 Wiring, service, logging (§8, §9)
 
-- [ ] `agent/main.py`: build camera from config (Picamera2 on Pi, fake via
-      `STAGE=test`), start uploader + viewer threads, run capture loop;
-      SIGTERM → stop camera, bounded uploader drain (~10 s), exit 0.
-- [ ] Structured single-line logging to stdout per §9; startup config echo
-      (no secrets).
-- [ ] `systemd/dam-agent.service`: `Restart=always`,
-      `After=network-online.target`, `EnvironmentFile` pointing at the stage
-      env, runs as user `cskim`.
-- [ ] End-to-end test on Windows: FakeCamera → queue → mocked S3, plus
-      `STAGE=test python -m agent.main` smoke run (Ctrl+C clean exit).
+- [x] `agent/main.py`: `Agent` class wiring camera (Fake on `STAGE=test`,
+      Picamera2 otherwise) → sink (FrameStore publish + uploader submit) →
+      viewer (`status()` feeds `/healthz`, no secrets). The capture loop's
+      sleep is the stop `Event.wait`, so SIGTERM/SIGINT interrupts a 48 s
+      sleep instantly → camera stop, viewer stop, bounded uploader drain.
+- [x] Structured single-line logging to stdout; startup config echo.
+- [x] `systemd/dam-agent.service`: `Restart=always`, network-online,
+      user `cskim`, `WorkingDirectory=/opt/dam-agent` (stage env read from
+      there; `Environment=STAGE=dev`), `TimeoutStopSec=20` > drain.
+- [x] End-to-end test on Windows (4 tests): FakeCamera → queue → mocked
+      sign+PUT (uploaded bytes verified), `request_stop()` ends `run()`
+      within 5 s. Smoke run `STAGE=test python -m agent.main`: starts,
+      captures at cadence, uploader retries the unreachable test signer
+      with 1→2→4 s backoff. (Windows CTRL_BREAK is a hard kill — clean
+      SIGTERM shutdown is unit-tested; real check on the Pi in 1.8.)
+      Suite: 51 green, ruff clean.
 
 ### 1.7 Deploy & provisioning (CLAUDE.md deploy loop)
 
-- [ ] `scripts/provision-pi.sh`: install `python3-picamera2` (needed on
-      `dam-imx477-1`/Trixie; already present on the Bookworm Pis), create
-      venv **with `--system-site-packages`** (picamera2 comes from apt),
-      `pip install boto3 python-dotenv python-ulid`, install the systemd
-      unit.
-- [ ] `scripts/deploy.ps1` (+ `.sh`): rsync/scp `agent/` + unit file to a
-      target Pi over SSH (key auth), `systemctl daemon-reload && restart
-      dam-agent`, tail `journalctl` for a quick health check.
-- [ ] Device `.env.dev` on the bench Pi: `UPLOAD_SIGNER_URL` + its issued
-      `DEVICE_TOKEN` (no AWS credentials — ADR-0003; never committed).
+- [x] `scripts/provision-pi.sh`: apt `python3-picamera2` + `python3-venv`,
+      `/opt/dam-agent` with a `--system-site-packages` venv, pip
+      `python-dotenv python-ulid typing-extensions` (typing-extensions:
+      python-ulid needs it on 3.11; **no boto3 on devices** — ADR-0003).
+      Executed on dam-imx477-2.
+- [x] `scripts/deploy.sh` (+ thin `deploy.ps1` wrapper): scp `agent/` +
+      unit → install unit, daemon-reload, enable, restart, status +
+      journal tail. Executed against dam-imx477-2.
+- [x] `/opt/dam-agent/.env.dev` on the Pi (chmod 600): `LOCATION_ID=TEST`
+      (bench uses the TEST location during dev), `DEVICE_ID=dam-imx477-2`,
+      signer URL + freshly issued token (token transited only via SSH;
+      never stored on the dev machine or in git).
 
 ### 1.8 On-Pi verification (phase exit criteria)
 
-- [ ] `pytest` + `ruff` green on Windows.
-- [ ] Deploy to one bench Pi (`dam-imx477-2`, Bookworm + HQ cam suggested);
-      service active, `journalctl -u dam-agent` shows capture/upload lines
-      at the 48 s cadence, no errors.
-- [ ] Objects appear in
-      `s3://knh-dam-store/images/{location_id}/{today}/` with millisecond
-      filenames and `x-amz-meta-*` metadata; count matches elapsed time.
-- [ ] Viewer: `http://<pi>.local:8080/` shows the latest frame refreshing
-      each interval; `/healthz` counters move.
-- [ ] Resilience check: disconnect the Pi's network ~2 min → frames queue,
-      reconnect → queue drains, drop counter still 0; `systemctl stop`
-      exits clean within the drain window.
-- [ ] Run through a local midnight (or fake the clock): keys roll to the
-      new `{YYYY-MM-DD}` folder without a restart.
-- [ ] Update this plan's checkboxes + deviations; record ADR-0001
-      (picamera2) in the ADR index if not already done in Phase 0.
+- [x] `pytest` (51) + `ruff` green on Windows.
+- [x] Deployed to `dam-imx477-2` (Bookworm + HQ cam, Wi-Fi `.109`):
+      service **active**, journal shows capture lines at exactly 48 s
+      (09:36:01 → 09:36:49 → 09:37:37) and `uploaded … attempt=1` for
+      every frame (first upload 8 s — Lambda cold start; then ~1.5 s).
+- [x] Objects in `s3://knh-dam-store/images/TEST/2026-08-13/` with
+      millisecond filenames, `image/jpeg`, and full `x-amz-meta-*`
+      (ulid / device-id / captured-utc / timezone); count matched uptime.
+- [x] Viewer from the dev machine: `/latest.jpg` HTTP 200 — a real
+      1280×720 capture (city view); `/healthz` counters advance
+      (`uploaded: 3→4`, `queue_depth: 0`, `dropped: 0`).
+- [x] `systemctl stop` → "dam-agent stopped {uploaded: 4 …}",
+      `Deactivated successfully`, `ExecMainStatus=0`; restart → active
+      and capturing again.
+- [ ] **Deferred**: network-disconnect resilience (the bench Pi is
+      Wi-Fi-only — cutting wlan0 remotely risks stranding it; do when
+      physically at the device or via wired connection). Queue/backoff
+      behavior is covered by unit tests.
+- [ ] **Deferred**: real midnight rollover — the service is left running,
+      so tonight's local midnight verifies it naturally (unit-tested
+      already); check `images/TEST/{tomorrow}/` exists next session.
+- [x] Plan checkboxes + deviations updated; ADR-0001 recorded in Phase 0.
 
 ## Deviations / decisions during execution
 
