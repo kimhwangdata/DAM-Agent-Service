@@ -90,17 +90,17 @@ def test_unknown_path_404(viewer):
 
 
 def _read_stream_part(fp):
-    """Read one MJPEG part: boundary + headers + exactly Content-Length bytes."""
-    line = fp.readline(200)
-    while line in (b"\r\n", b"\n"):  # tolerate part trailing CRLF
-        line = fp.readline(200)
-    assert line.strip() == f"--{BOUNDARY}".encode()
+    """Read one MJPEG part: skip boundary/blank lines, parse headers, read
+    exactly Content-Length bytes. (Each part is FOLLOWED by the next
+    boundary so browsers render immediately — the skip handles both.)"""
     length = None
     while True:
-        header = fp.readline(200).strip()
-        if not header:
-            break
-        name, _, value = header.partition(b":")
+        line = fp.readline(200).strip()
+        if line == f"--{BOUNDARY}".encode() or line == b"":
+            if length is not None:
+                break  # blank line after headers -> body follows
+            continue  # leading boundary / inter-part blank
+        name, _, value = line.partition(b":")
         if name.lower() == b"content-length":
             length = int(value)
     assert length is not None

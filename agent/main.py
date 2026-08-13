@@ -106,6 +106,7 @@ class Agent:
         status: dict[str, Any] = {
             "stage": self.settings.stage,
             "device_id": self.settings.device_id,
+            "location_id": self.uploader.location_id,
             "timezone": self.settings.timezone,
             "interval_s": self.settings.interval_s,
             "capture_size": f"{self.settings.capture_size[0]},"

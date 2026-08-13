@@ -29,11 +29,19 @@ PAGE_HTML = """<!doctype html>
 <p id="ts" style="margin:8px">waiting for capture…</p>
 <img src="/stream.mjpg" style="max-width:100%" alt="live capture">
 <script>
-setInterval(async () => {
+async function refreshCaption() {
   const s = await (await fetch('/healthz')).json();
-  document.getElementById('ts').textContent =
+  const location = s.location_id || 'unassigned';
+  let text = location + '  |  ' +
     (s.last_capture || 'no frame yet') + '  (frame #' + s.seq + ')';
-}, 5000);
+  if (s.thermal_state === 'paused')
+    text += '  [thermally paused at ' + s.temp_c + '°C - showing last frame]';
+  else if (s.thermal_state === 'warn') text += '  [warm: ' + s.temp_c + '°C]';
+  document.getElementById('ts').textContent = text;
+  document.title = location + ' - ' + (s.device_id || 'dam-agent');
+}
+refreshCaption().catch(() => {});
+setInterval(() => refreshCaption().catch(() => {}), 5000);
 </script>
 </body></html>
 """
@@ -127,17 +135,23 @@ class _Handler(BaseHTTPRequestHandler):
             "Content-Type", f"multipart/x-mixed-replace; boundary={BOUNDARY}"
         )
         self.end_headers()
+        # Browsers render a multipart frame only once the NEXT boundary
+        # arrives, so each part ends with the following boundary line —
+        # otherwise the first image would sit buffered until the next
+        # capture (48 s, or forever while thermally paused).
+        self.wfile.write(f"--{BOUNDARY}\r\n".encode("ascii"))
         seen_seq = 0
         while self.server.running:
             frame = self.server.frames.wait_newer_than(seen_seq, STREAM_WAIT_S)
             if frame is None:
                 continue  # timeout slice — recheck running flag
-            part_head = (
-                f"--{BOUNDARY}\r\n"
+            part = (
                 "Content-Type: image/jpeg\r\n"
                 f"Content-Length: {len(frame.jpeg)}\r\n\r\n"
             ).encode("ascii")
-            self.wfile.write(part_head + frame.jpeg + b"\r\n")
+            self.wfile.write(
+                part + frame.jpeg + f"\r\n--{BOUNDARY}\r\n".encode("ascii")
+            )
             self.wfile.flush()
             seen_seq = frame.seq
 

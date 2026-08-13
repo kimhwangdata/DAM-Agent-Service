@@ -1,6 +1,6 @@
 # Phase 2 — Agent Manager Implementation Plan
 
-- **Status**: In progress (2.1–2.4 done; next: 2.5 webapp side)
+- **Status**: In progress (2.1–2.5 done — webapp deployed to dev; next: 2.6 end-to-end)
 - **Date**: 2026-08-13
 - **Based on**: `docs/design/02-agent-manager.md` (all § refs point there)
 - **Repos**: device plane in **this repo**; operator API + UI in the
@@ -128,25 +128,29 @@
 ### 2.5 Webapp — operator API + UI
       (in `D:\home\repo-misc\days-in-a-minute`, its conventions)
 
-- [ ] Design doc there (`docs/design/03-devices.md`): §4 table contract
-      copied as the inter-repo interface + endpoint list; CLAUDE.md scope
-      note (device management now in scope; capture/encode still out).
-- [ ] `lib/server/devices.ts`: DynamoDB access to the two tables
+- [x] Design doc there (`docs/design/03-devices.md`): the §4 table
+      contract restated as the inter-repo interface (with an explicit
+      ownership rule: webapp never writes `reported`, device plane never
+      writes the operator blocks), health-state derivation rules,
+      env/IAM additions (device store ≠ video pool: `knh-dam-store`,
+      `ap-northeast-2`), the full endpoint table, UI spec, and JAYANG
+      Post prerequisites. Webapp CLAUDE.md scope note added.
+- [x] `lib/server/devices.ts`: DynamoDB access to the two tables
       (env-configured names; `knh-dev` locally, execution role on dev);
       zod schemas in `lib/schemas/`.
-- [ ] Route handlers (`/api/v1/devices*`, admin RBAC, standard
+- [x] Route handlers (`/api/v1/devices*`, admin RBAC, standard
       envelope): list (with derived health state §5.1), detail (+
       presigned latest-frame GET), `assignment` (Post picker source =
       existing Posts; timezone cross-check warning), `control`
       (capturing + video window incl. start>end), `access`, `hardware`,
       token rotate/kill (writes token table; plaintext returned once in
       the response, never stored), `health-review`.
-- [ ] `/manage/devices` UI: fleet table (group + health badges,
+- [x] `/manage/devices` UI: fleet table (group + health badges,
       last-seen, temp) → detail panel (latest frame auto-refresh,
       status fields, start/stop, window editor, Post assignment,
       hardware/access editors, rotate/kill buttons, SSH command +
       MJPEG link for the ssh group).
-- [ ] Vitest over in-memory fakes; `npm run typecheck && lint` clean;
+- [x] Vitest over in-memory fakes; `npm run typecheck && lint` clean;
       deploy dev stage (`scripts/deploy-dev.sh`); webapp Lambda role
       gains access to the two device tables + `images/*` read for
       presigning.

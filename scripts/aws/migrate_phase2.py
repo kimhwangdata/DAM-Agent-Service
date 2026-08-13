@@ -23,7 +23,7 @@ REGION = "ap-northeast-2"
 BENCH_DEVICES = [
     {
         "device_id": "dam-imx477-2",
-        "location_id": "TEST",  # the running agent's assignment
+        "location_id": "JAYANG2",
         "access": {
             "ssh_accessible": True,
             "ip": "192.168.70.109",
@@ -37,7 +37,7 @@ BENCH_DEVICES = [
     },
     {
         "device_id": "dam-imx477-1",
-        "location_id": None,  # no agent deployed yet
+        "location_id": "JAYANG1",
         "access": {
             "ssh_accessible": True,
             "ip": "192.168.70.107",
@@ -51,7 +51,7 @@ BENCH_DEVICES = [
     },
     {
         "device_id": "dam-imx462",
-        "location_id": None,  # no agent deployed yet
+        "location_id": "JAYANGN",
         "access": {
             "ssh_accessible": True,
             "ip": "192.168.70.106",
@@ -62,6 +62,21 @@ BENCH_DEVICES = [
             "lens_type": "M16 wide (factory)",
             "note": "Arducam Pivariety IMX462 (UC-955), Bookworm; "
                     "libcamera is Arducam's build - do not apt-upgrade blindly",
+        },
+    },
+    {
+        "device_id": "dam-imx477-3",
+        "location_id": "JAYANG3",
+        "access": {
+            "ssh_accessible": True,
+            "ip": "192.168.70.102",
+            "ssh_user": "cskim",
+            "note": "bench, KNHPL wifi (cable removed); "
+                    "IMX477 detected; no agent yet",
+        },
+        "hardware": {
+            "lens_type": "CS-mount (lens unspecified)",
+            "note": "RPi HQ camera (IMX477), Bookworm",
         },
     },
 ]

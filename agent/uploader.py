@@ -61,6 +61,9 @@ class Uploader:
         self._dropped = 0
         self._skipped = 0
         self._failed_attempts = 0
+        # Learned from the signer's key on each upload (the assignment is
+        # cloud-authoritative; the device env no longer carries a location).
+        self.location_id: str | None = settings.location_id
         # Set by Agent after construction; included in every /sign body so
         # the sign call doubles as the fleet heartbeat (design 02 §5).
         self.status_fn: Callable[[], dict[str, Any]] | None = None
@@ -199,6 +202,9 @@ class Uploader:
             f"{format_hhmmssfff(item.captured_at)}.jpg",
             metadata,
         )
+        key_parts = str(signed.get("key", "")).split("/")
+        if len(key_parts) >= 2 and key_parts[1]:
+            self.location_id = key_parts[1]
         headers = {"Content-Type": CONTENT_TYPE}
         headers.update({f"x-amz-meta-{k}": v for k, v in metadata.items()})
         put_request = urllib.request.Request(
