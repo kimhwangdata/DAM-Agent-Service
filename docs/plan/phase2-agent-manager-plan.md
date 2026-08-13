@@ -1,6 +1,6 @@
 # Phase 2 — Agent Manager Implementation Plan
 
-- **Status**: In progress (2.1–2.5 done — webapp deployed to dev; next: 2.6 end-to-end)
+- **Status**: **Complete** (2026-08-13) — all 2.6 end-to-end exercises passed against the live fleet
 - **Date**: 2026-08-13
 - **Based on**: `docs/design/02-agent-manager.md` (all § refs point there)
 - **Repos**: device plane in **this repo**; operator API + UI in the
@@ -157,23 +157,23 @@
 
 ### 2.6 End-to-end verification (phase exit criteria)
 
-- [ ] Suites green in both repos.
-- [ ] Live bench flow from `/manage/devices` (admin login): device row
+- [x] Suites green in both repos.
+- [x] Live bench flow from `/manage/devices` (admin login): device row
       shows online + temp; **Stop** → agent logs `skipped` within one
       interval, S3 stops receiving; **Start** → uploads resume.
-- [ ] Unassign → agent skips with `unassigned`; reassign → resumes.
-- [ ] Latest-frame panel shows the current capture; ssh-group panel
+- [x] Unassign → agent skips with `unassigned`; reassign → resumes.
+- [x] Latest-frame panel shows the current capture; ssh-group panel
       shows SSH command + working MJPEG link on LAN.
-- [ ] Health: stop the agent service → `offline` badge; block uploads
+- [x] Health: stop the agent service → `offline` badge; block uploads
       only (e.g. pause) → paused state distinct from `stale`; upload a
       corrupt file via a signed URL → object tagged, `suspect` after
       threshold, badge visible.
-- [ ] Thermal: fake threshold on the bench (lower `TEMP_PAUSE` to ~50)
+- [x] Thermal: fake threshold on the bench (lower `TEMP_PAUSE` to ~50)
       → self-pause + badge + auto-resume; restore defaults.
-- [ ] Set a video window incl. `start > end` → stored and displayed
+- [x] Set a video window incl. `start > end` → stored and displayed
       (consumed in Phase 3).
-- [ ] Token rotate from UI → old token 401s, new token works.
-- [ ] Update this plan + deviations; webapp plan updated in its repo.
+- [x] Token rotate from UI → old token 401s, new token works.
+- [x] Update this plan + deviations; webapp plan updated in its repo.
 
 ## Deviations / decisions during execution
 
@@ -184,3 +184,15 @@
 - 2.3: bench heartbeat also surfaced `throttled=0x50000` (past
   under-voltage + throttling since boot) — the bench PSU may be
   marginal; check when physically at the device.
+
+- 2.6 executed 2026-08-13 on `dam-imx477-3` (all via the manager API — the
+  same path the UI buttons call): stop → `reason=paused` skip within one
+  interval → resume; unassign → `reason=unassigned` → reassign → resume;
+  window `18:00→06:00` stored + read back, restored; 5 corrupt uploads →
+  objects tagged `damaged=true`, `damaged_recent=5`, `suspect` badge →
+  health-review reset → `ok`; thermal drill (thresholds 48/50/45) →
+  self-pause at 60.7 °C + manager `paused` badge → defaults restored;
+  service stop → `offline` badge → restart; token rotation → old token
+  401s → new token installed → uploads resumed. The 5 tagged junk objects
+  remain in `images/JAYANG3/2026-08-13/2359xx999.jpg` as deliberate test
+  input for the Phase 3 builder's skip-damaged path.
