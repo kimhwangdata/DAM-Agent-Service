@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""PreToolUse guard (Bash): block a short list of destructive / policy-violating commands.
+"""PreToolUse guard (Bash): block destructive / policy-violating commands.
 
 Deterministic guardrail:
-- `git ... --no-verify` / `-c commit.gpgsign=false`  → hooks and signing are never bypassed
-- `git push --force` (incl. `-f`) to origin main     → protected branch
+- `git ... --no-verify` / `-c commit.gpgsign=false` → hooks and signing are
+  never bypassed
+- `git push --force` (incl. `-f`) to origin main    → protected branch
 Exit 2 blocks and feeds stderr to the model; exit 0 allows.
 """
 import json
