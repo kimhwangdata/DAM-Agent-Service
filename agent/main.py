@@ -35,7 +35,12 @@ def build_camera(settings: Settings) -> CameraSource:
     tz = ZoneInfo(settings.timezone)
     if settings.stage == "test":
         return FakeCamera(tz=tz, size=settings.capture_size)
-    return Picamera2Camera(tz=tz, size=settings.capture_size)
+    return Picamera2Camera(
+        tz=tz,
+        size=settings.capture_size,
+        max_exposure_ms=settings.max_exposure_ms,
+        tuning_file=settings.tuning_file,
+    )
 
 
 class Agent:

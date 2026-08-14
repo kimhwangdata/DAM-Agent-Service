@@ -50,6 +50,34 @@ def test_video_minutes_must_be_positive(tmp_path):
         load_settings(stage="test", env_file=env_file)
 
 
+def test_max_exposure_defaults_to_disabled(tmp_path):
+    settings = load_settings(stage="test", env_file=_write_env(tmp_path, MINIMAL_ENV))
+    assert settings.max_exposure_ms == 0
+
+
+def test_max_exposure_override(tmp_path):
+    env_file = _write_env(tmp_path, MINIMAL_ENV + "MAX_EXPOSURE_MS=5000\n")
+    settings = load_settings(stage="test", env_file=env_file)
+    assert settings.max_exposure_ms == 5000
+
+
+def test_tuning_file_defaults_to_none(tmp_path):
+    settings = load_settings(stage="test", env_file=_write_env(tmp_path, MINIMAL_ENV))
+    assert settings.tuning_file is None
+
+
+def test_tuning_file_override(tmp_path):
+    env_file = _write_env(tmp_path, MINIMAL_ENV + "TUNING_FILE=imx219_noir.json\n")
+    settings = load_settings(stage="test", env_file=env_file)
+    assert settings.tuning_file == "imx219_noir.json"
+
+
+def test_max_exposure_must_not_be_negative(tmp_path):
+    env_file = _write_env(tmp_path, MINIMAL_ENV + "MAX_EXPOSURE_MS=-1\n")
+    with pytest.raises(ConfigError, match="MAX_EXPOSURE_MS"):
+        load_settings(stage="test", env_file=env_file)
+
+
 def test_overrides_are_read(tmp_path):
     env_file = _write_env(
         tmp_path,

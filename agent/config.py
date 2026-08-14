@@ -18,6 +18,13 @@ DEFAULT_VIDEO_MINUTES = 1
 DEFAULT_CAPTURE_SIZE = (1280, 720)
 DEFAULT_QUEUE_MAX = 64
 DEFAULT_VIEWER_PORT = 8080
+# Night/long exposure: AE may extend exposure up to this many ms when dark.
+# 0 keeps the stock picamera2 ceiling (~66 ms). Only useful on low-light
+# sensors (IMX462); keep well under the capture interval (48 s).
+DEFAULT_MAX_EXPOSURE_MS = 0
+# Optional libcamera tuning file name (e.g. "imx219_noir.json" for
+# filterless NoIR modules). Empty = picamera2's automatic choice.
+DEFAULT_TUNING_FILE = ""
 
 # Capture cadence (design 01-agent.md §3 — legacy capture-24h.py formula).
 FPS = 30  # matches the video builder's -framerate 30
@@ -67,6 +74,8 @@ class Settings:
     temp_resume_c: float = DEFAULT_TEMP_RESUME_C
     temp_shutdown_c: float = DEFAULT_TEMP_SHUTDOWN_C
     temp_shutdown_enabled: bool = DEFAULT_TEMP_SHUTDOWN_ENABLED
+    max_exposure_ms: int = DEFAULT_MAX_EXPOSURE_MS
+    tuning_file: str | None = None
 
     @property
     def interval_s(self) -> int:
@@ -111,6 +120,10 @@ def load_settings(stage: str | None = None, env_file: Path | None = None) -> Set
     if video_minutes < 1:
         raise ConfigError(f"VIDEO_MINUTES must be >= 1, got {video_minutes}")
 
+    max_exposure_ms = int(values.get("MAX_EXPOSURE_MS", DEFAULT_MAX_EXPOSURE_MS))
+    if max_exposure_ms < 0:
+        raise ConfigError(f"MAX_EXPOSURE_MS must be >= 0, got {max_exposure_ms}")
+
     return Settings(
         stage=stage,
         location_id=values.get("LOCATION_ID") or None,
@@ -138,4 +151,6 @@ def load_settings(stage: str | None = None, env_file: Path | None = None) -> Set
             str(values.get("TEMP_SHUTDOWN_ENABLED", DEFAULT_TEMP_SHUTDOWN_ENABLED))
             .lower() in ("1", "true", "yes")
         ),
+        max_exposure_ms=max_exposure_ms,
+        tuning_file=values.get("TUNING_FILE", DEFAULT_TUNING_FILE) or None,
     )

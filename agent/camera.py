@@ -55,14 +55,27 @@ class FakeCamera:
         self._started = False
 
 
+# Shortest frame duration we ever ask for (30 fps) when extending the AE
+# exposure ceiling via MAX_EXPOSURE_MS.
+_FRAME_DURATION_MIN_US = 33_333
+
+
 class Picamera2Camera:
     """Real camera via picamera2 — preview configuration, BGR888 (legacy)."""
 
     model: str | None = None
 
-    def __init__(self, tz: tzinfo, size: tuple[int, int] = (1280, 720)) -> None:
+    def __init__(
+        self,
+        tz: tzinfo,
+        size: tuple[int, int] = (1280, 720),
+        max_exposure_ms: int = 0,
+        tuning_file: str | None = None,
+    ) -> None:
         self._tz = tz
         self._size = size
+        self._max_exposure_ms = max_exposure_ms
+        self._tuning_file = tuning_file
         self._cam: Any = None
 
     def start(self) -> None:
@@ -70,9 +83,24 @@ class Picamera2Camera:
             from picamera2 import Picamera2  # only importable on the Pi
         except ImportError as exc:
             raise CameraError("picamera2 is not available on this system") from exc
-        cam = Picamera2()
+        tuning = None
+        if self._tuning_file:
+            # e.g. "imx219_noir.json" — corrects AWB for filterless NoIR
+            # modules (whites render pink under the default tuning).
+            tuning = Picamera2.load_tuning_file(self._tuning_file)
+        cam = Picamera2(tuning=tuning)
+        controls: dict[str, Any] = {}
+        if self._max_exposure_ms > 0:
+            # Let AE extend exposure up to the configured ceiling at night
+            # (stock preview config caps frame duration at ~66 ms, which
+            # blinds low-light sensors like the IMX462 — see
+            # docs/reference/rpi-camera-list.md).
+            controls["FrameDurationLimits"] = (
+                _FRAME_DURATION_MIN_US,
+                self._max_exposure_ms * 1000,
+            )
         config = cam.create_preview_configuration(
-            main={"format": "BGR888", "size": self._size}
+            main={"format": "BGR888", "size": self._size}, controls=controls
         )
         cam.configure(config)
         cam.start()
