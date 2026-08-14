@@ -18,12 +18,14 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 
-PROFILE = "knh-dev"
+# Scoped deploy role - docs/reference/setup-dam-deployer-policy.md
+PROFILE = "dam-deployer"
 REGION = "ap-northeast-2"
 TABLE = "knh-dam-devices"
 AGENTS_TABLE = "knh-dam-agents"
 FUNCTION = "dam-upload-signer"
 ROLE = "dam-upload-signer-role"
+BOUNDARY_ARN = "arn:aws:iam::664751480155:policy/dam-boundary"
 BUCKET = "knh-dam-store"
 RUNTIME = "python3.12"
 HANDLER_FILE = Path(__file__).resolve().parents[2] / "upload-signer" / "handler.py"
@@ -63,7 +65,8 @@ def ensure_role() -> str:
     }
     try:
         role = iam.create_role(
-            RoleName=ROLE, AssumeRolePolicyDocument=json.dumps(trust)
+            RoleName=ROLE, AssumeRolePolicyDocument=json.dumps(trust),
+            PermissionsBoundary=BOUNDARY_ARN,
         )
         print(f"[created] role {ROLE}")
         time.sleep(10)  # IAM propagation before Lambda uses the role

@@ -22,7 +22,7 @@ import zipfile
 
 import boto3
 
-PROFILE = "knh-dev"
+PROFILE = "dam-deployer"
 REGION = "ap-northeast-2"
 LAYER_NAME = "dam-ffmpeg"
 BASE = "https://johnvansickle.com/ffmpeg/releases"

@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 
 import boto3
 
-PROFILE = "knh-dev"
+PROFILE = "dam-deployer"
 REGION = "ap-northeast-2"
 
 # Bench reality — docs/reference/camera-info.md + memory notes.

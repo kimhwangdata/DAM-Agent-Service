@@ -225,6 +225,19 @@ Notes on the deliberate rough edges:
   managed-policy attachment; `AttachRolePolicy` on `role/dam-*` is safe
   because the boundary caps whatever gets attached.
 
+> **Status (2026-08-14): ACTIVE.** `dam-boundary` + `dam-deploy`
+> (managed) + role `dam-deployer` were created via the admin console;
+> `~/.aws/config` has the profile; all `scripts/aws/*.py` use
+> `PROFILE = "dam-deployer"` and pass `PermissionsBoundary` on
+> `create_role`. Verified: full idempotent video-builder redeploy under
+> the role, and denials on out-of-scope probes (foreign bucket, webapp
+> table, unbounded `iam:CreateRole`, unscoped `lambda:ListFunctions`).
+> `dam-boundary` is attached as the permissions boundary on all three
+> runtime roles (set via the admin console 2026-08-14 — neither
+> `knh-dev` nor `dam-deploy` holds `iam:PutRolePermissionsBoundary`, by
+> design); fleet uploads verified flowing under the bounded roles.
+> Setup is fully complete — §4 below is kept for rebuild-from-scratch.
+
 ## 4. One-time setup
 
 Creating the role itself needs IAM permissions `knh-dev` may not have

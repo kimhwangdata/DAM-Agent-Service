@@ -18,10 +18,12 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 
-PROFILE = "knh-dev"
+# Scoped deploy role - docs/reference/setup-dam-deployer-policy.md
+PROFILE = "dam-deployer"
 REGION = "ap-northeast-2"
 FUNCTION = "dam-video-builder"
 ROLE = "dam-video-builder-role"
+BOUNDARY_ARN = "arn:aws:iam::664751480155:policy/dam-boundary"
 RULE = "dam-video-builder-sweep"
 BUCKET = "knh-dam-store"
 AGENTS_TABLE = "knh-dam-agents"
@@ -49,7 +51,8 @@ def ensure_role() -> str:
     }
     try:
         role = iam.create_role(
-            RoleName=ROLE, AssumeRolePolicyDocument=json.dumps(trust)
+            RoleName=ROLE, AssumeRolePolicyDocument=json.dumps(trust),
+            PermissionsBoundary=BOUNDARY_ARN,
         )
         print(f"[created] role {ROLE}")
         time.sleep(10)

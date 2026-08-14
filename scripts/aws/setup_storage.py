@@ -17,7 +17,7 @@ import sys
 import boto3
 from botocore.exceptions import ClientError
 
-PROFILE = "knh-dev"
+PROFILE = "dam-deployer"
 REGION = "ap-northeast-2"
 STORE = "knh-dam-store"
 BACKUP = "knh-dam-backup"
