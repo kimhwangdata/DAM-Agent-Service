@@ -8,9 +8,14 @@ in-memory JPEG bytes — nothing is written to disk (no-local-save design).
 from __future__ import annotations
 
 import io
+import logging
 import time
 from datetime import datetime, tzinfo
 from typing import Any, Protocol
+
+from agent.config import NIGHT_LUX_OFF, NIGHT_LUX_ON
+
+log = logging.getLogger(__name__)
 
 
 class CameraError(Exception):
@@ -60,6 +65,21 @@ class FakeCamera:
 _FRAME_DURATION_MIN_US = 33_333
 
 
+def night_decision(
+    lux: float | None,
+    is_night: bool,
+    lux_on: float = NIGHT_LUX_ON,
+    lux_off: float = NIGHT_LUX_OFF,
+) -> bool:
+    """Should the camera be in manual night mode? Hysteresis between the
+    two thresholds; unknown lux keeps the current mode."""
+    if lux is None:
+        return is_night
+    if is_night:
+        return lux < lux_off
+    return lux < lux_on
+
+
 class Picamera2Camera:
     """Real camera via picamera2 — preview configuration, BGR888 (legacy)."""
 
@@ -71,11 +91,16 @@ class Picamera2Camera:
         size: tuple[int, int] = (1280, 720),
         max_exposure_ms: int = 0,
         tuning_file: str | None = None,
+        night_exposure_ms: int = 0,
+        night_gain: float = 8.0,
     ) -> None:
         self._tz = tz
         self._size = size
         self._max_exposure_ms = max_exposure_ms
         self._tuning_file = tuning_file
+        self._night_exposure_ms = night_exposure_ms
+        self._night_gain = night_gain
+        self.is_night = False
         self._cam: Any = None
 
     def start(self) -> None:
@@ -119,7 +144,33 @@ class Picamera2Camera:
             metadata = request.get_metadata()
         finally:
             request.release()
+        if self._night_exposure_ms > 0:
+            self._update_night_mode(metadata.get("Lux"))
         return buffer.getvalue(), captured_at, metadata
+
+    def _update_night_mode(self, lux: float | None) -> None:
+        """Legacy camera_viewer.py AEC pattern: below the lux threshold,
+        disable AE and set manual ExposureTime/AnalogueGain (the tuning
+        file caps AE shutter at ~66 ms, far too short for night); above
+        it, hand control back to AE. Applies to the NEXT capture."""
+        want_night = night_decision(lux, self.is_night)
+        if want_night == self.is_night:
+            return
+        if want_night:
+            self._cam.set_controls({
+                "AeEnable": False,
+                "ExposureTime": self._night_exposure_ms * 1000,
+                "AnalogueGain": self._night_gain,
+            })
+            log.info(
+                "night mode ON lux=%.1f exposure_ms=%d gain=%.1f",
+                -1.0 if lux is None else lux,
+                self._night_exposure_ms, self._night_gain,
+            )
+        else:
+            self._cam.set_controls({"AeEnable": True})
+            log.info("night mode OFF lux=%.1f", -1.0 if lux is None else lux)
+        self.is_night = want_night
 
     def stop(self) -> None:
         if self._cam is not None:

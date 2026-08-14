@@ -38,8 +38,11 @@ def build_camera(settings: Settings) -> CameraSource:
     return Picamera2Camera(
         tz=tz,
         size=settings.capture_size,
-        max_exposure_ms=settings.max_exposure_ms,
+        # manual night exposure must fit inside the frame duration limit
+        max_exposure_ms=max(settings.max_exposure_ms, settings.night_exposure_ms),
         tuning_file=settings.tuning_file,
+        night_exposure_ms=settings.night_exposure_ms,
+        night_gain=settings.night_gain,
     )
 
 
@@ -131,6 +134,8 @@ class Agent:
         model = getattr(self.camera, "model", None)
         if model:
             status["camera"] = model
+        if getattr(self.camera, "is_night", False):
+            status["night_mode"] = True
         if thermal.should_shutdown:
             status["event"] = "thermal-shutdown"
         return status

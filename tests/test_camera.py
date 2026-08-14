@@ -37,3 +37,28 @@ def test_picamera2_module_loads_without_picamera2_installed():
         cam.start()  # not installed on Windows -> clean CameraError
     with pytest.raises(CameraError, match="start"):
         cam.capture_jpeg()
+
+
+class TestNightDecision:
+    def test_dark_scene_turns_night_on(self):
+        from agent.camera import night_decision
+        assert night_decision(2.0, False) is True
+
+    def test_bright_scene_stays_day(self):
+        from agent.camera import night_decision
+        assert night_decision(500.0, False) is False
+
+    def test_hysteresis_band_keeps_current_mode(self):
+        from agent.camera import night_decision
+        # 20 lux: above ON (10) so day stays day; below OFF (30) so night stays night
+        assert night_decision(20.0, False) is False
+        assert night_decision(20.0, True) is True
+
+    def test_bright_morning_turns_night_off(self):
+        from agent.camera import night_decision
+        assert night_decision(100.0, True) is False
+
+    def test_unknown_lux_keeps_mode(self):
+        from agent.camera import night_decision
+        assert night_decision(None, True) is True
+        assert night_decision(None, False) is False

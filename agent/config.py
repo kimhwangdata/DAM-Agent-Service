@@ -25,6 +25,16 @@ DEFAULT_MAX_EXPOSURE_MS = 0
 # Optional libcamera tuning file name (e.g. "imx219_noir.json" for
 # filterless NoIR modules). Empty = picamera2's automatic choice.
 DEFAULT_TUNING_FILE = ""
+# Manual night mode (legacy camera_viewer.py AEC pattern): AE cannot exceed
+# the tuning file's ~66 ms shutter ceiling (measured 2026-08-14), so when
+# the scene lux drops below NIGHT_LUX_ON the agent switches to manual
+# ExposureTime/AnalogueGain, and back to AE above NIGHT_LUX_OFF
+# (hysteresis). 0 disables. Sweet spots measured: IMX462+F/0.95 ~1000 ms
+# gain 4; IMX477 ~5000 ms gain 10.
+DEFAULT_NIGHT_EXPOSURE_MS = 0
+DEFAULT_NIGHT_GAIN = 8.0
+NIGHT_LUX_ON = 10.0
+NIGHT_LUX_OFF = 30.0
 
 # Capture cadence (design 01-agent.md §3 — legacy capture-24h.py formula).
 FPS = 30  # matches the video builder's -framerate 30
@@ -76,6 +86,8 @@ class Settings:
     temp_shutdown_enabled: bool = DEFAULT_TEMP_SHUTDOWN_ENABLED
     max_exposure_ms: int = DEFAULT_MAX_EXPOSURE_MS
     tuning_file: str | None = None
+    night_exposure_ms: int = DEFAULT_NIGHT_EXPOSURE_MS
+    night_gain: float = DEFAULT_NIGHT_GAIN
 
     @property
     def interval_s(self) -> int:
@@ -124,6 +136,14 @@ def load_settings(stage: str | None = None, env_file: Path | None = None) -> Set
     if max_exposure_ms < 0:
         raise ConfigError(f"MAX_EXPOSURE_MS must be >= 0, got {max_exposure_ms}")
 
+    night_exposure_ms = int(
+        values.get("NIGHT_EXPOSURE_MS", DEFAULT_NIGHT_EXPOSURE_MS)
+    )
+    if night_exposure_ms < 0:
+        raise ConfigError(
+            f"NIGHT_EXPOSURE_MS must be >= 0, got {night_exposure_ms}"
+        )
+
     return Settings(
         stage=stage,
         location_id=values.get("LOCATION_ID") or None,
@@ -153,4 +173,6 @@ def load_settings(stage: str | None = None, env_file: Path | None = None) -> Set
         ),
         max_exposure_ms=max_exposure_ms,
         tuning_file=values.get("TUNING_FILE", DEFAULT_TUNING_FILE) or None,
+        night_exposure_ms=night_exposure_ms,
+        night_gain=float(values.get("NIGHT_GAIN", DEFAULT_NIGHT_GAIN)),
     )

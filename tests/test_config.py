@@ -72,6 +72,21 @@ def test_tuning_file_override(tmp_path):
     assert settings.tuning_file == "imx219_noir.json"
 
 
+def test_night_mode_defaults_disabled(tmp_path):
+    settings = load_settings(stage="test", env_file=_write_env(tmp_path, MINIMAL_ENV))
+    assert settings.night_exposure_ms == 0
+    assert settings.night_gain == 8.0
+
+
+def test_night_mode_override(tmp_path):
+    env_file = _write_env(
+        tmp_path, MINIMAL_ENV + "NIGHT_EXPOSURE_MS=1000\nNIGHT_GAIN=4\n"
+    )
+    settings = load_settings(stage="test", env_file=env_file)
+    assert settings.night_exposure_ms == 1000
+    assert settings.night_gain == 4.0
+
+
 def test_max_exposure_must_not_be_negative(tmp_path):
     env_file = _write_env(tmp_path, MINIMAL_ENV + "MAX_EXPOSURE_MS=-1\n")
     with pytest.raises(ConfigError, match="MAX_EXPOSURE_MS"):
