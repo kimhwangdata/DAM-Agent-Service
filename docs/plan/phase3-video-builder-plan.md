@@ -1,7 +1,7 @@
 # Phase 3 — Video Builder Implementation Plan
 
-- **Status**: In progress (3.1-3.6 done except the overnight hands-off
-  verification, which runs after local midnight 2026-08-14)
+- **Status**: Complete (overnight hands-off verification passed
+  2026-08-14 00:26 KST)
 - **Date**: 2026-08-13
 - **Based on**: `docs/design/03-video-builder.md` (all § refs point there)
 - **Goal**: the 15-minute sweep builds every completed capture cycle into
@@ -19,7 +19,7 @@
 
 - [x] Phase 2 complete: fleet capturing at 4 locations, windows +
       timezones + `assignment` live in `knh-dam-agents`.
-- [ ] At least one **completed** capture cycle (first full day finishes at
+- [x] At least one **completed** capture cycle (first full day finishes at
       the fleet's local midnight 2026-08-14 00:00 KST); JAYANG3's
       2026-08-13 folder carries the two tagged damaged files as the
       skip-path test case.
@@ -90,10 +90,18 @@
       deviations (both planted files are 88 B, so the < 10 KB listing
       drop excluded them before the magic check that feeds the counter;
       the invariant "damaged frames never enter the video" held).
-- [ ] Then hands-off: after local midnight, the sweep builds all four
+- [x] Then hands-off: after local midnight, the sweep builds all four
       locations' cycles without intervention; verify all four videos +
       `last_video` records; check one video's content (download, play,
       spot-check duration and that day-spanning frames are ordered).
+      **Verified 2026-08-14 00:26 KST**: the 00:01:53 KST scheduled
+      sweep dispatched all four (`skipped=0`), all four builds ok
+      within 51 s — JAYANG1 846 frames / 6.2 MB, JAYANG2 599 / 4.6 MB,
+      JAYANG3 849 / 5.0 MB (full-day rebuild overwrote the 1.4 MB
+      partial), JAYANGN 457 / 3.7 MB; `last_video.date=2026-08-13` on
+      all four devices; every `duration_s` = frames/30 exactly.
+      (Frame counts differ per device because day 1 was partial —
+      agents started capturing at different times.)
 - [x] Failure-path check: a location with `last_video` current is NOT
       rebuilt by subsequent sweeps (CloudWatch dispatch summaries).
       **Verified**: consecutive sweeps 06:49/07:01/07:16 UTC all logged
@@ -128,11 +136,16 @@
 - [x] Suites green in this repo (and webapp if touched). 2026-08-13:
       agent repo 94 passed + 1 skipped (local ffmpeg), ruff clean
       repo-wide; webapp 116 passed.
-- [ ] Four consecutive-day videos appear with no human action (check the
-      morning after 3.5).
-- [ ] `last_video` visible for all four devices; damaged-skip counted
+- [x] Four consecutive-day videos appear with no human action (check the
+      morning after 3.5). All four 2026-08-13 videos were built by the
+      scheduled sweep alone; subsequent sweeps (00:16/00:31/00:46 KST)
+      logged `due=[] skipped=4` — no rebuilds.
+- [x] `last_video` visible for all four devices; damaged-skip counted
       exactly where expected; no orphan `/tmp` growth across warm runs
-      (CloudWatch memory/storage metrics sane).
+      (CloudWatch memory/storage metrics sane). REPORT lines: builds
+      used 444–502 MB of 3008 MB; the JAYANG3 build ran on a warm
+      container (no Init Duration) and succeeded — `/tmp` hygiene on
+      entry works; no disk/ENOSPC errors anywhere.
 - [x] Plans updated with `[x]` + deviations (this file, continuously).
 
 ## Deviations / decisions during execution
@@ -144,9 +157,12 @@
   existing Video records keep working; `csk-allsky` left untouched),
   set `STORAGE_BUCKET=knh-dam-store` / `STORAGE_REGION=ap-northeast-2`
   in the webapp's `.env.dev`/`.env.test`/`.env.example`, updated its
-  CLAUDE.md + `00-architecture.md`, redeployed (tests 116 green). Both
-  key shapes (legacy flat + new per-location subfolders) coexist in the
-  pool by design.
+  CLAUDE.md + `00-architecture.md`, redeployed (tests 116 green).
+  Follow-up 2026-08-14: the legacy flat keys were moved into the same
+  per-location layout (`videos/CAMAS/`, `videos/PHL/`, `videos/PHLW/`,
+  227 objects) with the webapp's Video records (`s3_key`, and `GSI1SK`
+  for pool items) repointed in both stage tables — the pool now has one
+  uniform key shape.
 
 - 3.5: `skipped_damaged` expectation corrected — the two tagged test
   files are 88-byte objects, excluded by the size drop at the listing
