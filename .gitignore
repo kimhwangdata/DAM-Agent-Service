@@ -20,3 +20,6 @@ legacy-rpi-camera/
 
 # build artifacts
 *.egg-info/
+
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
