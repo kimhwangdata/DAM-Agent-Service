@@ -18,7 +18,7 @@ from typing import Any
 from ulid import ULID
 
 from agent.camera import CameraSource
-from agent.config import Settings
+from agent.config import PREVIEW_INTERVAL_S, Settings
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +57,8 @@ class CaptureLoop:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         gate: Callable[[], bool] | None = None,
+        preview_active: Callable[[], bool] | None = None,
+        preview_publish: Callable[[bytes, datetime], None] | None = None,
     ) -> None:
         self._camera = camera
         self._settings = settings
@@ -64,6 +66,12 @@ class CaptureLoop:
         self._clock = clock
         self._sleep = sleep
         self._gate = gate  # returns False to skip this interval (thermal pause)
+        # Live-view boost (design §6): while preview_active() is True the
+        # wait between scheduled captures is filled with preview-only
+        # captures published straight to the viewer — never to the sink,
+        # so the upload cadence and the daily video are unaffected.
+        self._preview_active = preview_active
+        self._preview_publish = preview_publish
         self._running = False
 
     def capture_once(self) -> CaptureItem:
@@ -102,5 +110,30 @@ class CaptureLoop:
             except Exception:
                 duration = self._clock() - started
                 log.exception("capture failed dur=%.3fs", duration)
-            self._sleep(max(0.0, interval - duration))
+            if self._preview_active is None or self._preview_publish is None:
+                self._sleep(max(0.0, interval - duration))
+            else:
+                self._wait_with_preview(started, interval)
         log.info("capture loop stopped")
+
+    def _wait_with_preview(self, started: float, interval: float) -> None:
+        """Sleep out the interval in slices, taking viewer-only preview
+        captures while a stream client is connected (and not thermally
+        paused)."""
+        while self._running:
+            remaining = interval - (self._clock() - started)
+            if remaining <= 0:
+                return
+            gate_open = self._gate is None or self._gate()
+            if gate_open and self._preview_active():
+                t0 = self._clock()
+                try:
+                    jpeg, captured_at, _ = self._camera.capture_jpeg()
+                    self._preview_publish(jpeg, captured_at)
+                except Exception:
+                    log.exception("preview capture failed")
+                spent = self._clock() - t0
+                remaining = interval - (self._clock() - started)
+                self._sleep(max(0.0, min(PREVIEW_INTERVAL_S - spent, remaining)))
+            else:
+                self._sleep(min(PREVIEW_INTERVAL_S, remaining))

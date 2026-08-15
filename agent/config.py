@@ -35,6 +35,11 @@ DEFAULT_NIGHT_EXPOSURE_MS = 0
 DEFAULT_NIGHT_GAIN = 8.0
 NIGHT_LUX_ON = 10.0
 NIGHT_LUX_OFF = 30.0
+# Live-view boost: while an MJPEG viewer client is connected, extra
+# preview captures at this interval refresh the viewer between the
+# scheduled uploads (which keep their exact cadence; previews are never
+# uploaded).
+PREVIEW_INTERVAL_S = 1.0
 
 # Capture cadence (design 01-agent.md §3 — legacy capture-24h.py formula).
 FPS = 30  # matches the video builder's -framerate 30

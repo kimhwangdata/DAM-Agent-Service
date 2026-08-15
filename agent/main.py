@@ -73,6 +73,11 @@ class Agent:
             self._sink,
             sleep=self._stop_event.wait,
             gate=self._thermal_gate,
+            # late-bound: self.viewer is created a few lines below
+            preview_active=lambda: bool(
+                self.viewer and self.viewer.active_clients > 0
+            ),
+            preview_publish=self.frames.publish,
         )
         self.viewer = (
             Viewer(settings.viewer_port, self.frames, self.status)

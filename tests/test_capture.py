@@ -115,3 +115,43 @@ def test_capture_failure_does_not_kill_loop():
     )
     loop.run()  # must not raise
     assert sleeps == [47.0]  # still paced after the failure
+
+
+class TestPreviewBoost:
+    def _run_interval(self, preview_on, gate=None):
+        """Run one full interval with a simulated clock; sleep advances it."""
+        ts = datetime(2026, 8, 13, 12, 0, 0, tzinfo=TZ)
+        camera = StubCamera(ts)
+        settings = SETTINGS
+        published = []
+        sunk = []
+        state = {"t": 0.0}
+        loop = CaptureLoop(
+            camera,
+            settings,
+            sunk.append,
+            clock=lambda: state["t"],
+            sleep=lambda s: state.__setitem__("t", state["t"] + s)
+            or (state["t"] >= settings.interval_s and loop.stop()),
+            gate=gate,
+            preview_active=lambda: preview_on,
+            preview_publish=lambda jpeg, at: published.append(jpeg),
+        )
+        loop.run()
+        return sunk, published
+
+    def test_preview_fills_wait_and_never_reaches_sink(self):
+        sunk, published = self._run_interval(preview_on=True)
+        assert len(sunk) == 1  # exactly one scheduled upload capture
+        # ~one preview per second across the 48 s interval
+        assert 40 <= len(published) <= 48
+
+    def test_no_viewer_no_preview_captures(self):
+        sunk, published = self._run_interval(preview_on=False)
+        assert len(sunk) == 1
+        assert published == []
+
+    def test_thermal_pause_stops_previews_too(self):
+        sunk, published = self._run_interval(preview_on=True, gate=lambda: False)
+        assert sunk == []  # gate skips the scheduled capture
+        assert published == []

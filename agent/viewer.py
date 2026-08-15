@@ -130,6 +130,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(frame.jpeg)
 
     def _stream(self) -> None:
+        self.server.stream_client_started()
+        try:
+            self._stream_body()
+        finally:
+            self.server.stream_client_ended()
+
+    def _stream_body(self) -> None:
         self.send_response(200)
         self.send_header(
             "Content-Type", f"multipart/x-mixed-replace; boundary={BOUNDARY}"
@@ -180,6 +187,20 @@ class ViewerServer(ThreadingHTTPServer):
         self.frames = frames
         self.status_fn = status_fn
         self.running = True
+        self._clients_lock = threading.Lock()
+        self._stream_clients = 0
+
+    def stream_client_started(self) -> None:
+        with self._clients_lock:
+            self._stream_clients += 1
+
+    def stream_client_ended(self) -> None:
+        with self._clients_lock:
+            self._stream_clients -= 1
+
+    @property
+    def stream_clients(self) -> int:
+        return self._stream_clients
 
 
 class Viewer:
@@ -199,6 +220,11 @@ class Viewer:
     @property
     def port(self) -> int:
         return self._server.server_address[1]
+
+    @property
+    def active_clients(self) -> int:
+        """Connected MJPEG stream clients (drives the live-view boost)."""
+        return self._server.stream_clients
 
     def start(self) -> None:
         self._thread.start()
