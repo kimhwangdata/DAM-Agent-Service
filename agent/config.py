@@ -35,6 +35,11 @@ DEFAULT_NIGHT_EXPOSURE_MS = 0
 DEFAULT_NIGHT_GAIN = 8.0
 NIGHT_LUX_ON = 10.0
 NIGHT_LUX_OFF = 30.0
+# Optional raw sensor mode "W,H" (empty = libcamera's choice). Needed on
+# sensors whose auto-picked video mode crops the FoV: the OV5647's
+# 1920x1080 mode uses only 74% of the sensor width — set RAW_SIZE=1296,972
+# (binned, full FoV) there. Measured on dam-ov5647ir-75, 2026-08-15.
+DEFAULT_RAW_SIZE = ""
 # Live-view boost: while an MJPEG viewer client is connected, extra
 # preview captures at this interval refresh the viewer between the
 # scheduled uploads (which keep their exact cadence; previews are never
@@ -93,6 +98,7 @@ class Settings:
     tuning_file: str | None = None
     night_exposure_ms: int = DEFAULT_NIGHT_EXPOSURE_MS
     night_gain: float = DEFAULT_NIGHT_GAIN
+    raw_size: tuple[int, int] | None = None
 
     @property
     def interval_s(self) -> int:
@@ -180,4 +186,9 @@ def load_settings(stage: str | None = None, env_file: Path | None = None) -> Set
         tuning_file=values.get("TUNING_FILE", DEFAULT_TUNING_FILE) or None,
         night_exposure_ms=night_exposure_ms,
         night_gain=float(values.get("NIGHT_GAIN", DEFAULT_NIGHT_GAIN)),
+        raw_size=(
+            _parse_capture_size(values["RAW_SIZE"])
+            if values.get("RAW_SIZE")
+            else None
+        ),
     )

@@ -93,6 +93,7 @@ class Picamera2Camera:
         tuning_file: str | None = None,
         night_exposure_ms: int = 0,
         night_gain: float = 8.0,
+        raw_size: tuple[int, int] | None = None,
     ) -> None:
         self._tz = tz
         self._size = size
@@ -100,6 +101,7 @@ class Picamera2Camera:
         self._tuning_file = tuning_file
         self._night_exposure_ms = night_exposure_ms
         self._night_gain = night_gain
+        self._raw_size = raw_size
         self.is_night = False
         self._cam: Any = None
 
@@ -124,8 +126,15 @@ class Picamera2Camera:
                 _FRAME_DURATION_MIN_US,
                 self._max_exposure_ms * 1000,
             )
+        kwargs: dict[str, Any] = {}
+        if self._raw_size is not None:
+            # Pin the sensor mode — some sensors' auto-picked video modes
+            # crop the FoV (OV5647 1080p uses 74% of the sensor width).
+            kwargs["raw"] = {"size": self._raw_size}
         config = cam.create_preview_configuration(
-            main={"format": "BGR888", "size": self._size}, controls=controls
+            main={"format": "BGR888", "size": self._size},
+            controls=controls,
+            **kwargs,
         )
         cam.configure(config)
         cam.start()

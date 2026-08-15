@@ -43,6 +43,7 @@ def build_camera(settings: Settings) -> CameraSource:
         tuning_file=settings.tuning_file,
         night_exposure_ms=settings.night_exposure_ms,
         night_gain=settings.night_gain,
+        raw_size=settings.raw_size,
     )
 
 

@@ -125,3 +125,14 @@ def test_bad_capture_size_fails_loudly(tmp_path):
     env_file = _write_env(tmp_path, MINIMAL_ENV + "CAPTURE_SIZE=wide\n")
     with pytest.raises(ConfigError, match="CAPTURE_SIZE"):
         load_settings(stage="test", env_file=env_file)
+
+
+def test_raw_size_defaults_to_none(tmp_path):
+    settings = load_settings(stage="test", env_file=_write_env(tmp_path, MINIMAL_ENV))
+    assert settings.raw_size is None
+
+
+def test_raw_size_override(tmp_path):
+    env_file = _write_env(tmp_path, MINIMAL_ENV + "RAW_SIZE=1296,972\n")
+    settings = load_settings(stage="test", env_file=env_file)
+    assert settings.raw_size == (1296, 972)

@@ -24,7 +24,7 @@ CS-mount HQ cameras without an adapter.
 | 6 | Wide lens | **Novoxy** | Amazon | **2.8 mm** | ~110–120° (class-typical, n/p) | n/p (2.8 mm 5 MP class is F1.8–2.0) | **5 MP** | n/p | Same class as #1/#4 |
 | 7 | Telephoto | unbranded | Shop1987458 Store (AliExpress) | **8 mm** | ~40–45° on 1/2.5" (n/p) | n/p | **2 MP (1080p)** | n/p | Narrow view — distant scenery; only 2 MP rated, soft on 12 MP sensors |
 | 8 | Starlight lens | **Witrue** | AliExpress | **4 mm** | ~70–80° on 1/2.5" (n/p) | **F1.5** | **5 MP, 1/2.5"** | Starlight class, metal body, IR-suitable | The best documented of the set |
-| 9 | Telephoto | **Witrue** | AliExpress | **8 mm** | ~40–45° on 1/2.5" (n/p) | n/p (8 mm class is ~F1.8) | 5 MP class (n/p) | n/p | Likely the lens on `dam-imx477-8mm` |
+| 9 | Telephoto | **Witrue** | AliExpress | **8 mm** | ~40–45° on 1/2.5" (n/p) | n/p (8 mm class is ~F1.8) | 5 MP class (n/p) | n/p | Likely the lens on `dam-imx477-45-1` (hostname = 45° max FoV) |
 
 ## Practical notes for our fleet
 
