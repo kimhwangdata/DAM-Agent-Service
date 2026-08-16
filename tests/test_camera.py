@@ -91,3 +91,10 @@ class TestNightBlownFrameEscape:
         Image.new("RGB", (64, 64), (10, 10, 10)).save(dark, format="JPEG")
         assert mean_luma(white.getvalue()) > 240
         assert mean_luma(dark.getvalue()) < 30
+
+
+def test_pivariety_model_reports_real_sensor():
+    from agent.camera import resolve_camera_model
+    assert resolve_camera_model("arducam-pivariety") == "imx462"
+    assert resolve_camera_model("imx477") == "imx477"
+    assert resolve_camera_model(None) is None

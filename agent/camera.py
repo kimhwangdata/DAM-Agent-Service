@@ -64,6 +64,15 @@ class FakeCamera:
 # exposure ceiling via MAX_EXPOSURE_MS.
 _FRAME_DURATION_MIN_US = 33_333
 
+# The Arducam Pivariety bridge MCU reports its own name instead of the
+# sensor behind it; every Pivariety module in this fleet is an IMX462
+# (UC-955), so report the real sensor.
+_MODEL_ALIASES = {"arducam-pivariety": "imx462"}
+
+
+def resolve_camera_model(model: str | None) -> str | None:
+    return _MODEL_ALIASES.get(model, model) if model else model
+
 
 def night_decision(
     lux: float | None,
@@ -159,7 +168,7 @@ class Picamera2Camera:
         cam.start()
         time.sleep(1)  # let AE/AWB settle after start, as the legacy code did
         self._cam = cam
-        self.model = cam.camera_properties.get("Model")
+        self.model = resolve_camera_model(cam.camera_properties.get("Model"))
 
     def capture_jpeg(self) -> tuple[bytes, datetime, dict[str, Any]]:
         if self._cam is None:
