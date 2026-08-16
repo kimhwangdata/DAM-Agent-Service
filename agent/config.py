@@ -12,8 +12,15 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-DEFAULT_S3_BUCKET = "knh-dam-store"
-DEFAULT_S3_IMAGE_PREFIX = "images/"
+from shared.constants import (
+    CAPTURE_DURATION_SECONDS,
+    FRAME_PER_MINUTE,
+    IMAGE_PREFIX_DEFAULT,
+    S3_BUCKET_DEFAULT,
+)
+
+DEFAULT_S3_BUCKET = S3_BUCKET_DEFAULT
+DEFAULT_S3_IMAGE_PREFIX = IMAGE_PREFIX_DEFAULT
 DEFAULT_VIDEO_MINUTES = 1
 DEFAULT_CAPTURE_SIZE = (1280, 720)
 DEFAULT_QUEUE_MAX = 64
@@ -51,10 +58,8 @@ DEFAULT_RAW_SIZE = ""
 # uploaded).
 PREVIEW_INTERVAL_S = 1.0
 
-# Capture cadence (design 01-agent.md §3 — legacy capture-24h.py formula).
-FPS = 30  # matches the video builder's -framerate 30
-FRAME_PER_MINUTE = 60 * FPS
-CAPTURE_DURATION_SECONDS = 24 * 60 * 60
+# Capture cadence constants are shared with the video builder
+# (shared/constants.py): FPS, FRAME_PER_MINUTE, CAPTURE_DURATION_SECONDS.
 
 # Thermal protection (design 02-agent-manager.md §5.2). Bench reality:
 # a Pi 3 in an enclosure idles ~73 C, so warn/pause/resume sit 5 C above

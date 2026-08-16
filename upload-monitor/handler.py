@@ -27,21 +27,27 @@ import urllib.parse
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from constants import (
+    AGENTS_TABLE_DEFAULT,
+    CACHE_TTL_S,
+    DAMAGED_WINDOW_HOURS,
+    IMAGE_PREFIX_DEFAULT,
+    JPEG_EOI,
+    JPEG_SOI,
+    MAX_BYTES_DEFAULT,
+    MIN_BYTES_DEFAULT,
+)
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-AGENTS_TABLE = os.environ.get("AGENTS_TABLE", "knh-dam-agents")
-IMAGE_PREFIX = os.environ.get("IMAGE_PREFIX", "images/")
-MIN_BYTES = int(os.environ.get("MIN_BYTES", "10000"))        # 10 KB
-MAX_BYTES = int(os.environ.get("MAX_BYTES", "5242880"))      # 5 MB
-DAMAGED_WINDOW_HOURS = 24
-
-JPEG_SOI = b"\xff\xd8"  # start of image
-JPEG_EOI = b"\xff\xd9"  # end of image
+AGENTS_TABLE = os.environ.get("AGENTS_TABLE", AGENTS_TABLE_DEFAULT)
+IMAGE_PREFIX = os.environ.get("IMAGE_PREFIX", IMAGE_PREFIX_DEFAULT)
+MIN_BYTES = int(os.environ.get("MIN_BYTES", str(MIN_BYTES_DEFAULT)))
+MAX_BYTES = int(os.environ.get("MAX_BYTES", str(MAX_BYTES_DEFAULT)))
 
 # location_id -> (device_id, cached_until_monotonic)
 _location_cache: dict[str, tuple[str, float]] = {}
-_CACHE_TTL_S = 300
 
 
 def _resolve_device(agents: Any, location_id: str) -> str | None:
@@ -55,7 +61,7 @@ def _resolve_device(agents: Any, location_id: str) -> str | None:
         if (item.get("assignment") or {}).get("location_id") == location_id:
             device_id = item["device_id"]
             _location_cache[location_id] = (
-                device_id, time.monotonic() + _CACHE_TTL_S
+                device_id, time.monotonic() + CACHE_TTL_S
             )
             return device_id
     return None

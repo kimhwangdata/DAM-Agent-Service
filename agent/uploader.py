@@ -24,23 +24,18 @@ from zoneinfo import ZoneInfo
 
 from agent.capture import CaptureItem, format_hhmmssfff
 from agent.config import Settings
+from agent.constants import (
+    BACKOFF_CAP_S,
+    BACKOFF_INITIAL_S,
+    HEARTBEAT_MIN_INTERVAL_S,
+    PUT_TIMEOUT_S,
+    SIDECAR_META_KEYS,
+    SIGN_TIMEOUT_S,
+)
+from shared.constants import CONTENT_TYPE_JPEG, CONTENT_TYPE_JSON, JPG_SUFFIX
 
 log = logging.getLogger(__name__)
 
-BACKOFF_INITIAL_S = 1.0
-BACKOFF_CAP_S = 60.0
-CONTENT_TYPE = "image/jpeg"
-SIGN_TIMEOUT_S = 30
-PUT_TIMEOUT_S = 60
-
-
-# Camera metadata worth logging per frame (scalars/short tuples only — the
-# full picamera2 metadata also carries matrices and histograms).
-_SIDECAR_META_KEYS = (
-    "ExposureTime", "AnalogueGain", "DigitalGain", "Lux",
-    "ColourTemperature", "ColourGains", "ScalerCrop",
-    "SensorTemperature", "FocusFoM",
-)
 
 
 def build_sidecar(item: CaptureItem, status: dict[str, Any]) -> dict[str, Any]:
@@ -48,7 +43,7 @@ def build_sidecar(item: CaptureItem, status: dict[str, Any]) -> dict[str, Any]:
     the image (architecture §7): device basics + camera settings actually
     used (exposure/gain/lux) + hardware condition at capture time."""
     camera_meta: dict[str, Any] = {}
-    for key in _SIDECAR_META_KEYS:
+    for key in SIDECAR_META_KEYS:
         value = item.camera_metadata.get(key)
         if value is None:
             continue
@@ -92,6 +87,10 @@ class Uploader:
         # Learned from the signer's key on each upload (the assignment is
         # cloud-authoritative; the device env no longer carries a location).
         self.location_id: str | None = settings.location_id
+        # Capture window learned from every /sign answer (operator-set in
+        # the control plane); full day until the signer says otherwise.
+        self.window: tuple[str, str] = ("00:00", "00:00")
+        self._last_heartbeat_mono = 0.0
         # Set by Agent after construction; included in every /sign body so
         # the sign call doubles as the fleet heartbeat (design 02 §5).
         self.status_fn: Callable[[], dict[str, Any]] | None = None
@@ -192,7 +191,7 @@ class Uploader:
             "token": self._settings.device_token,
             "date": date,
             "filename": filename,
-            "content_type": CONTENT_TYPE,
+            "content_type": CONTENT_TYPE_JPEG,
             "metadata": metadata,
             "device_id": self._settings.device_id,
         }
@@ -218,6 +217,9 @@ class Uploader:
                 if error == "unassigned":
                     raise SkipUpload("unassigned") from exc
             raise
+        window = signed.get("window")
+        if isinstance(window, dict) and window.get("start") and window.get("end"):
+            self.window = (str(window["start"]), str(window["end"]))
         if signed.get("status") == "paused":
             raise SkipUpload("paused")
         return signed
@@ -231,14 +233,14 @@ class Uploader:
         }
         signed = self._sign(
             item.captured_at.strftime("%Y-%m-%d"),
-            f"{format_hhmmssfff(item.captured_at)}.jpg",
+            f"{format_hhmmssfff(item.captured_at)}{JPG_SUFFIX}",
             metadata,
             sidecar=True,
         )
         key_parts = str(signed.get("key", "")).split("/")
         if len(key_parts) >= 2 and key_parts[1]:
             self.location_id = key_parts[1]
-        headers = {"Content-Type": CONTENT_TYPE}
+        headers = {"Content-Type": CONTENT_TYPE_JPEG}
         headers.update({f"x-amz-meta-{k}": v for k, v in metadata.items()})
         put_request = urllib.request.Request(
             signed["url"], data=item.jpeg, method="PUT", headers=headers
@@ -261,7 +263,7 @@ class Uploader:
             ).encode("utf-8")
             request = urllib.request.Request(
                 sidecar_url, data=payload, method="PUT",
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": CONTENT_TYPE_JSON},
             )
             with self._urlopen(request, timeout=PUT_TIMEOUT_S):
                 pass
@@ -273,12 +275,18 @@ class Uploader:
 
     def send_heartbeat(self) -> None:
         """Status-only /sign (URL unused) — keeps the manager informed
-        while the agent is thermally paused (§5.2). Never raises."""
+        while the camera rests (thermal pause / capture-window idle).
+        Rate-limited so rest-state loops can call it freely. Never
+        raises."""
+        now = time.monotonic()
+        if now - self._last_heartbeat_mono < HEARTBEAT_MIN_INTERVAL_S:
+            return
+        self._last_heartbeat_mono = now
         now = datetime.now(ZoneInfo(self._settings.timezone))
         try:
             self._sign(
                 now.strftime("%Y-%m-%d"),
-                f"{format_hhmmssfff(now)}.jpg",
+                f"{format_hhmmssfff(now)}{JPG_SUFFIX}",
                 {"device-id": self._settings.device_id},
             )
         except SkipUpload:

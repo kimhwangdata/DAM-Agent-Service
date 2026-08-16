@@ -96,6 +96,11 @@ def zip_handler() -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(HANDLER_FILE, "handler.py")
+        zf.write(HANDLER_FILE.parent / "constants.py", "constants.py")
+        zf.write(
+            HANDLER_FILE.parent.parent / "shared" / "constants.py",
+            "shared/constants.py",
+        )
     return buffer.getvalue()
 
 

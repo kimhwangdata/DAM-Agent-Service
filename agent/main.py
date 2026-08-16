@@ -15,13 +15,21 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from agent import __version__
 from agent.camera import CameraSource, FakeCamera, Picamera2Camera
-from agent.capture import CaptureItem, CaptureLoop
+from agent.capture import (
+    CaptureItem,
+    CaptureLoop,
+    capture_interval_s,
+    in_window,
+    window_seconds,
+)
 from agent.config import Settings, load_settings
+from agent.constants import UPLOADER_DRAIN_S
 from agent.thermal import (
     ThermalMonitor,
     ThermalStatus,
@@ -32,8 +40,6 @@ from agent.uploader import Uploader
 from agent.viewer import FrameStore, Viewer
 
 log = logging.getLogger(__name__)
-
-UPLOADER_DRAIN_S = 10.0
 
 
 def build_camera(settings: Settings) -> CameraSource:
@@ -73,12 +79,14 @@ class Agent:
         self._thermal_status = ThermalStatus("ok", None, None, False)
         self._poweroff = poweroff if poweroff is not None else _sudo_poweroff
         self._pi_model = read_pi_model()
+        self._window_idle = False
         self.loop = CaptureLoop(
             self.camera,
             settings,
             self._sink,
             sleep=self._stop_event.wait,
-            gate=self._thermal_gate,
+            gate=self._capture_gate,
+            interval_fn=self._interval_s,
             # late-bound: self.viewer is created a few lines below
             preview_active=lambda: bool(
                 self.viewer and self.viewer.active_clients > 0
@@ -114,6 +122,34 @@ class Agent:
             return False
         return True
 
+    def _interval_s(self) -> int:
+        """Cadence adapted to the operator-set capture window (§5.3): the
+        window's frames still fill VIDEO_MINUTES of 30 fps video."""
+        start, end = self.uploader.window
+        return capture_interval_s(
+            window_seconds(start, end), self.settings.video_minutes
+        )
+
+    def _capture_gate(self) -> bool:
+        """Thermal check + capture-window check. Outside the window the
+        camera rests and heartbeats keep the manager informed (and keep
+        the window itself up to date for the next day)."""
+        if not self._thermal_gate():
+            return False
+        start, end = self.uploader.window
+        now = datetime.now(ZoneInfo(self.settings.timezone))
+        if in_window(now, start, end):
+            if self._window_idle:
+                log.info("capture window entered (%s-%s)", start, end)
+            self._window_idle = False
+            return True
+        if not self._window_idle:
+            log.info("capture window idle until %s (window %s-%s)",
+                     start, start, end)
+        self._window_idle = True
+        self.uploader.send_heartbeat()
+        return False
+
     def _sink(self, item: CaptureItem) -> None:
         self.frames.publish(item.jpeg, item.captured_at)
         self.uploader.submit(item)
@@ -127,7 +163,7 @@ class Agent:
             "device_id": self.settings.device_id,
             "location_id": self.uploader.location_id,
             "timezone": self.settings.timezone,
-            "interval_s": self.settings.interval_s,
+            "interval_s": self._interval_s(),
             "capture_size": f"{self.settings.capture_size[0]},"
                             f"{self.settings.capture_size[1]}",
             "agent_version": __version__,

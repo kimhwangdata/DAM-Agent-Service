@@ -110,11 +110,11 @@ Stages selected by the `STAGE` env var; the agent loads `.env.{STAGE}`.
 There is **no plain `.env`**. `.env.test` / `.env.dev` / `.env.prod` are
 gitignored — only `.env.example` is committed.
 
-| Stage | Env file    | Runs on                       | S3 target                    |
-| ----- | ----------- | ----------------------------- | ---------------------------- |
-| test  | `.env.test` | Windows dev machine (mock cam)| local MinIO or a test bucket |
-| dev   | `.env.dev`  | bench Pi                      | dev bucket                   |
-| prod  | `.env.prod` | deployed Pi(s)                | production bucket            |
+| Stage | Env file    | Runs on                        | S3 target                    |
+| ----- | ----------- | ------------------------------ | ---------------------------- |
+| test  | `.env.test` | Windows dev machine (mock cam) | local MinIO or a test bucket |
+| dev   | `.env.dev`  | bench Pi                       | dev bucket                   |
+| prod  | `.env.prod` | deployed Pi(s)                 | production bucket            |
 
 The video builder follows the same stages: its Lambda configuration
 (environment variables set at deploy time, not `.env` files in the package)
@@ -161,6 +161,7 @@ logic locally against local files or mocked S3.
 - All documentation and code comments must be written in English.
 - Configuration and magic values live in one config module read from the env
   file — no literals scattered through the code.
+- Use constants from `shared/constants.py` or service own folder `./constants.py` if the service is not shared; no magic numbers or string literals in code.
 
 ## Standard Workflow
 

@@ -21,30 +21,31 @@ import base64
 import hashlib
 import json
 import os
-import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-BUCKET = os.environ.get("BUCKET", "knh-dam-store")
-TABLE = os.environ.get("TABLE", "knh-dam-devices")
-AGENTS_TABLE = os.environ.get("AGENTS_TABLE", "knh-dam-agents")
-IMAGE_PREFIX = os.environ.get("IMAGE_PREFIX", "images/")
-URL_TTL_SECONDS = int(os.environ.get("URL_TTL_SECONDS", "60"))
+from constants import (
+    AGENTS_TABLE_DEFAULT,
+    ALLOWED_CONTENT_TYPE,
+    ALLOWED_METADATA_KEYS,
+    BUCKET_DEFAULT,
+    DATE_RE,
+    FILENAME_RE,
+    IMAGE_PREFIX,
+    REPORTED_KEYS,
+    TOKEN_TABLE_DEFAULT,
+    URL_TTL_SECONDS_DEFAULT,
+)
 
-DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-FILENAME_RE = re.compile(r"^\d{9}\.jpg$")
-ALLOWED_CONTENT_TYPE = "image/jpeg"
-ALLOWED_METADATA_KEYS = {"ulid", "device-id", "captured-utc", "timezone"}
+from shared.constants import CONTENT_TYPE_JSON, JPG_SUFFIX, JSON_SUFFIX
 
-# status fields accepted into `reported` (02-agent-manager.md §4)
-REPORTED_KEYS = {
-    "local_ip", "hostname", "agent_version",
-    "seq", "uploaded", "dropped", "skipped", "failed_attempts",
-    "queue_depth", "interval_s", "capture_size", "timezone", "uptime_s",
-    "pi_model", "camera", "temp_c", "throttled", "thermal_state", "event",
-    "stage", "capturing", "volt_core", "night_mode",
-}
+BUCKET = os.environ.get("BUCKET", BUCKET_DEFAULT)
+TABLE = os.environ.get("TABLE", TOKEN_TABLE_DEFAULT)
+AGENTS_TABLE = os.environ.get("AGENTS_TABLE", AGENTS_TABLE_DEFAULT)
+URL_TTL_SECONDS = int(
+    os.environ.get("URL_TTL_SECONDS", str(URL_TTL_SECONDS_DEFAULT))
+)
 
 
 def _response(status: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -149,8 +150,15 @@ def handle(event: dict, s3: Any, table: Any, agents: Any) -> dict[str, Any]:
     location_id = (record.get("assignment") or {}).get("location_id")
     if not location_id:
         return _response(409, {"error": "unassigned"})
-    if not (record.get("control") or {}).get("capturing", True):
-        return _response(200, {"status": "paused"})
+    control = record.get("control") or {}
+    # Every answer carries the capture window so agents can gate capture
+    # and adapt their interval to the operator-set window (§5.3).
+    window = {
+        "start": control.get("video_window_start", "00:00"),
+        "end": control.get("video_window_end", "00:00"),
+    }
+    if not control.get("capturing", True):
+        return _response(200, {"status": "paused", "window": window})
 
     key = f"{IMAGE_PREFIX}{location_id}/{date}/{filename}"
     params: dict[str, Any] = {
@@ -163,19 +171,22 @@ def handle(event: dict, s3: Any, table: Any, agents: Any) -> dict[str, Any]:
     url = s3.generate_presigned_url(
         "put_object", Params=params, ExpiresIn=URL_TTL_SECONDS
     )
-    response = {"status": "ok", "url": url, "key": key, "expires_in": URL_TTL_SECONDS}
+    response = {
+        "status": "ok", "url": url, "key": key,
+        "expires_in": URL_TTL_SECONDS, "window": window,
+    }
 
     # Optional metadata sidecar (architecture §7): one extra presigned PUT
     # for the same basename with .json, so hardware/capture status can be
     # logged next to every frame without widening device permissions.
     if body.get("sidecar"):
-        sidecar_key = key[: -len(".jpg")] + ".json"
+        sidecar_key = key[: -len(JPG_SUFFIX)] + JSON_SUFFIX
         response["sidecar_url"] = s3.generate_presigned_url(
             "put_object",
             Params={
                 "Bucket": BUCKET,
                 "Key": sidecar_key,
-                "ContentType": "application/json",
+                "ContentType": CONTENT_TYPE_JSON,
             },
             ExpiresIn=URL_TTL_SECONDS,
         )

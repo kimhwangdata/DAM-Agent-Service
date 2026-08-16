@@ -279,3 +279,23 @@ def test_sidecar_failure_does_not_fail_frame():
     })
     uploader = make_uploader(http)
     assert uploader.process(make_item(8))  # frame still succeeds
+
+
+def test_window_learned_from_sign_response():
+    http = FakeHttp(sign_answer={
+        "status": "ok", "url": "https://s3.example/put",
+        "key": "images/TEST/2026-08-13/120009000.jpg",
+        "window": {"start": "06:00", "end": "18:00"},
+    })
+    uploader = make_uploader(http)
+    assert uploader.window == ("00:00", "00:00")  # default until taught
+    uploader.process(make_item(9))
+    assert uploader.window == ("06:00", "18:00")
+
+
+def test_heartbeat_rate_limited():
+    http = FakeHttp()
+    uploader = make_uploader(http)
+    uploader.send_heartbeat()
+    uploader.send_heartbeat()  # immediately after - suppressed
+    assert len(http.sign_requests) == 1

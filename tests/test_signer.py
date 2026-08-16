@@ -8,6 +8,20 @@ from pathlib import Path
 
 import pytest
 
+
+def _load_service_constants(service_dir: Path) -> None:
+    """Register the service's constants.py as flat ``constants`` (Lambda
+    zip layout) right before exec-ing its handler. Each test file re-binds
+    it; handlers keep their own reference after exec."""
+    spec = importlib.util.spec_from_file_location(
+        "constants", service_dir / "constants.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["constants"] = module
+    spec.loader.exec_module(module)
+
+
+_load_service_constants(Path(__file__).resolve().parent.parent / "upload-signer")
 # load under a unique module name (test_monitor loads its own "handler")
 _spec = importlib.util.spec_from_file_location(
     "signer_handler",
@@ -171,7 +185,8 @@ def test_paused_device_gets_paused_not_url(tokens, agents):
     s3 = FakeS3()
     resp = handler.handle(_event(GOOD_BODY), s3=s3, table=tokens, agents=agents)
     assert resp["statusCode"] == 200
-    assert _body(resp) == {"status": "paused"}
+    assert _body(resp)["status"] == "paused"
+    assert _body(resp)["window"] == {"start": "00:00", "end": "00:00"}
     assert s3.calls == []  # nothing signed
     # status still recorded while paused
     assert agents.items["dam-imx477-2"]["reported"]["uploaded"] == 7
@@ -236,3 +251,12 @@ def test_no_sidecar_url_without_request(tokens, agents):
         _event(GOOD_BODY), s3=FakeS3(), table=tokens, agents=agents
     )
     assert "sidecar_url" not in _body(resp)
+
+
+def test_response_includes_capture_window(tokens, agents):
+    agents.items["dam-imx477-2"]["control"]["video_window_start"] = "06:00"
+    agents.items["dam-imx477-2"]["control"]["video_window_end"] = "18:00"
+    resp = handler.handle(
+        _event(GOOD_BODY), s3=FakeS3(), table=tokens, agents=agents
+    )
+    assert _body(resp)["window"] == {"start": "06:00", "end": "18:00"}

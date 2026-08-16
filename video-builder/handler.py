@@ -29,22 +29,33 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import cycles
+from constants import (
+    AGENTS_TABLE_DEFAULT,
+    BUILDER_VERSION,
+    DEFAULT_TIMEZONE_FALLBACK,
+    DOWNLOAD_THREADS,
+    FFMPEG_PATH_DEFAULT,
+    FFMPEG_TIMEOUT_S,
+    IMAGE_PREFIX_DEFAULT,
+    JPEG_EOI,
+    JPEG_SOI,
+    MIN_BYTES_DEFAULT,
+    S3_BUCKET_DEFAULT,
+    VIDEO_PREFIX_DEFAULT,
+)
+
+from shared.constants import CONTENT_TYPE_MP4, CONTENT_TYPE_TEXT, FPS
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-BUCKET = os.environ.get("BUCKET", "knh-dam-store")
-AGENTS_TABLE = os.environ.get("AGENTS_TABLE", "knh-dam-agents")
-IMAGE_PREFIX = os.environ.get("IMAGE_PREFIX", "images/")
-VIDEO_PREFIX = os.environ.get("VIDEO_PREFIX", "videos/")
-DEFAULT_TIMEZONE = os.environ.get("DEFAULT_TIMEZONE", "Asia/Seoul")
-MIN_BYTES = int(os.environ.get("MIN_BYTES", "10000"))
-FFMPEG = os.environ.get("FFMPEG_PATH", "/opt/bin/ffmpeg")
-DOWNLOAD_THREADS = 16
-BUILDER_VERSION = "1.0"
-
-JPEG_SOI = b"\xff\xd8"
-JPEG_EOI = b"\xff\xd9"
+BUCKET = os.environ.get("BUCKET", S3_BUCKET_DEFAULT)
+AGENTS_TABLE = os.environ.get("AGENTS_TABLE", AGENTS_TABLE_DEFAULT)
+IMAGE_PREFIX = os.environ.get("IMAGE_PREFIX", IMAGE_PREFIX_DEFAULT)
+VIDEO_PREFIX = os.environ.get("VIDEO_PREFIX", VIDEO_PREFIX_DEFAULT)
+DEFAULT_TIMEZONE = os.environ.get("DEFAULT_TIMEZONE", DEFAULT_TIMEZONE_FALLBACK)
+MIN_BYTES = int(os.environ.get("MIN_BYTES", str(MIN_BYTES_DEFAULT)))
+FFMPEG = os.environ.get("FFMPEG_PATH", FFMPEG_PATH_DEFAULT)
 
 
 
@@ -148,11 +159,13 @@ def _drop_invalid(frames_dir: Path) -> tuple[int, int]:
 def run_ffmpeg(frames_dir: Path, output: Path) -> None:
     # Legacy-proven encode settings (build-upload-video.py) — do not tune.
     command = [
-        FFMPEG, "-y", "-framerate", "30",
+        FFMPEG, "-y", "-framerate", str(FPS),
         "-pattern_type", "glob", "-i", str(frames_dir / "*.jpg"),
-        "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", str(output),
+        "-c:v", "libx264", "-r", str(FPS), "-pix_fmt", "yuv420p", str(output),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=780)
+    result = subprocess.run(
+        command, capture_output=True, text=True, timeout=FFMPEG_TIMEOUT_S
+    )
     if result.returncode != 0:
         logger.error("ffmpeg stderr tail: %s", result.stderr[-2000:])
         raise RuntimeError(f"ffmpeg failed rc={result.returncode}")
@@ -321,7 +334,7 @@ def handle_build(
     s3.upload_file(
         str(output), BUCKET, video_key,
         ExtraArgs={
-            "ContentType": "video/mp4",
+            "ContentType": CONTENT_TYPE_MP4,
             "Metadata": {
                 "frames": str(frames),
                 "skipped-damaged": str(skipped_damaged),
@@ -338,7 +351,7 @@ def handle_build(
         "built_at": datetime.now(UTC).isoformat(),
         "frames": frames,
         "skipped_damaged": skipped_damaged,
-        "duration_s": Decimal(str(round(frames / 30.0, 1))),
+        "duration_s": Decimal(str(round(frames / float(FPS), 1))),
         "build_ms": build_ms,
     }
     agents.update_item(
@@ -366,7 +379,7 @@ def handle_build(
             log_key = f"{VIDEO_PREFIX}{location_id}/{location_id}-{cycle_date}.log"
             s3.upload_file(
                 str(log_path), BUCKET, log_key,
-                ExtraArgs={"ContentType": "text/plain"},
+                ExtraArgs={"ContentType": CONTENT_TYPE_TEXT},
             )
             summary["log_key"] = log_key
     except Exception:

@@ -155,3 +155,45 @@ class TestPreviewBoost:
         sunk, published = self._run_interval(preview_on=True, gate=lambda: False)
         assert sunk == []  # gate skips the scheduled capture
         assert published == []
+
+
+class TestCaptureWindow:
+    def test_window_seconds(self):
+        from agent.capture import window_seconds
+        assert window_seconds("00:00", "00:00") == 86400  # full day
+        assert window_seconds("06:00", "18:00") == 43200
+        assert window_seconds("18:00", "06:00") == 43200  # crosses midnight
+        assert window_seconds("22:00", "02:00") == 14400
+
+    def test_in_window(self):
+        from agent.capture import in_window
+        noon = datetime(2026, 8, 16, 12, 0, tzinfo=TZ)
+        night = datetime(2026, 8, 16, 23, 30, tzinfo=TZ)
+        dawn = datetime(2026, 8, 16, 3, 0, tzinfo=TZ)
+        assert in_window(noon, "00:00", "00:00")  # full day always inside
+        assert in_window(noon, "06:00", "18:00")
+        assert not in_window(night, "06:00", "18:00")
+        assert in_window(night, "18:00", "06:00")  # crossing window
+        assert in_window(dawn, "18:00", "06:00")
+        assert not in_window(noon, "18:00", "06:00")
+
+    def test_capture_interval_adapts_to_window(self):
+        from agent.capture import capture_interval_s
+        assert capture_interval_s(86400, 1) == 48  # legacy full day
+        assert capture_interval_s(43200, 1) == 24  # 12 h window
+        assert capture_interval_s(14400, 1) == 8   # 4 h window
+        assert capture_interval_s(86400, 2) == 24  # 2-minute video
+        assert capture_interval_s(600, 1) == 2     # floor: tiny window
+
+    def test_loop_uses_dynamic_interval(self):
+        ts = datetime(2026, 8, 13, 12, 0, 0, tzinfo=TZ)
+        ticks = iter([0.0, 1.0])
+        sleeps = []
+        loop = CaptureLoop(
+            StubCamera(ts), SETTINGS, sink=lambda item: None,
+            clock=lambda: next(ticks),
+            sleep=lambda s: (sleeps.append(s), loop.stop()),
+            interval_fn=lambda: 24,
+        )
+        loop.run()
+        assert sleeps == [23.0]  # 24 - 1s capture, not the static 48

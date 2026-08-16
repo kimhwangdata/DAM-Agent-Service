@@ -8,6 +8,20 @@ from pathlib import Path
 
 import pytest
 
+
+def _load_service_constants(service_dir: Path) -> None:
+    """Register the service's constants.py as flat ``constants`` (Lambda
+    zip layout) right before exec-ing its handler. Each test file re-binds
+    it; handlers keep their own reference after exec."""
+    spec = importlib.util.spec_from_file_location(
+        "constants", service_dir / "constants.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["constants"] = module
+    spec.loader.exec_module(module)
+
+
+_load_service_constants(Path(__file__).resolve().parent.parent / "upload-monitor")
 # load under a unique module name (test_signer loads its own "handler")
 _spec = importlib.util.spec_from_file_location(
     "monitor_handler",

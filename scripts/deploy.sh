@@ -9,6 +9,7 @@ USER=cskim
 DEST=/opt/dam-agent
 
 scp -q -r agent "$USER@$HOST:$DEST/"
+scp -q -r shared "$USER@$HOST:$DEST/"
 scp -q systemd/dam-agent.service "$USER@$HOST:/tmp/dam-agent.service"
 ssh -t "$USER@$HOST" "
     sudo install -m 644 /tmp/dam-agent.service /etc/systemd/system/dam-agent.service &&

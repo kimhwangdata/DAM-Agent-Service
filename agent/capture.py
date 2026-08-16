@@ -19,8 +19,46 @@ from ulid import ULID
 
 from agent.camera import CameraSource
 from agent.config import PREVIEW_INTERVAL_S, Settings
+from agent.constants import MIN_INTERVAL_S
+from shared.constants import (
+    CAPTURE_DURATION_SECONDS,
+    FRAME_PER_MINUTE,
+    JPG_SUFFIX,
+)
 
 log = logging.getLogger(__name__)
+
+
+def _hhmm_minutes(hhmm: str) -> int:
+    hours, minutes = hhmm.split(":")
+    return int(hours) * 60 + int(minutes)
+
+
+def window_seconds(start: str, end: str) -> int:
+    """Capture-window length; start == end means the full day (§5.3)."""
+    s, e = _hhmm_minutes(start), _hhmm_minutes(end)
+    if s == e:
+        return CAPTURE_DURATION_SECONDS
+    minutes = e - s if e > s else 24 * 60 - (s - e)
+    return minutes * 60
+
+
+def in_window(now: datetime, start: str, end: str) -> bool:
+    """Is device-local ``now`` inside the capture window? Full-day windows
+    are always inside; start > end crosses midnight."""
+    s, e = _hhmm_minutes(start), _hhmm_minutes(end)
+    if s == e:
+        return True
+    t = now.hour * 60 + now.minute
+    if s < e:
+        return s <= t < e
+    return t >= s or t < e
+
+
+def capture_interval_s(window_s: int, video_minutes: int) -> int:
+    """Seconds between captures so the window still fills VIDEO_MINUTES of
+    30 fps video — a 12 h window at 1 min video means one frame per 24 s."""
+    return max(MIN_INTERVAL_S, window_s // (FRAME_PER_MINUTE * video_minutes))
 
 
 @dataclass(frozen=True)
@@ -42,7 +80,7 @@ def format_hhmmssfff(ts: datetime) -> str:
 def build_key(image_prefix: str, location_id: str, ts: datetime) -> str:
     """images/{location_id}/{YYYY-MM-DD}/{hhmmssfff}.jpg (architecture §7)."""
     day = ts.strftime("%Y-%m-%d")
-    return f"{image_prefix}{location_id}/{day}/{format_hhmmssfff(ts)}.jpg"
+    return f"{image_prefix}{location_id}/{day}/{format_hhmmssfff(ts)}{JPG_SUFFIX}"
 
 
 class CaptureLoop:
@@ -59,6 +97,7 @@ class CaptureLoop:
         gate: Callable[[], bool] | None = None,
         preview_active: Callable[[], bool] | None = None,
         preview_publish: Callable[[bytes, datetime], None] | None = None,
+        interval_fn: Callable[[], int] | None = None,
     ) -> None:
         self._camera = camera
         self._settings = settings
@@ -72,6 +111,8 @@ class CaptureLoop:
         # so the upload cadence and the daily video are unaffected.
         self._preview_active = preview_active
         self._preview_publish = preview_publish
+        # dynamic cadence (capture-window aware); None = fixed settings value
+        self._interval_fn = interval_fn
         self._running = False
 
     def capture_once(self) -> CaptureItem:
@@ -99,6 +140,12 @@ class CaptureLoop:
         interval = self._settings.interval_s
         log.info("capture loop started interval_s=%d", interval)
         while self._running:
+            if self._interval_fn is not None:
+                new_interval = self._interval_fn()
+                if new_interval != interval:
+                    log.info("capture interval %ds -> %ds (window change)",
+                             interval, new_interval)
+                    interval = new_interval
             started = self._clock()
             try:
                 if self._gate is None or self._gate():
@@ -124,8 +171,9 @@ class CaptureLoop:
             remaining = interval - (self._clock() - started)
             if remaining <= 0:
                 return
-            gate_open = self._gate is None or self._gate()
-            if gate_open and self._preview_active():
+            # preview_active first: without a viewer the gate must not run
+            # here (its rest-state heartbeats would fire once per slice)
+            if self._preview_active() and (self._gate is None or self._gate()):
                 t0 = self._clock()
                 try:
                     jpeg, captured_at, _ = self._camera.capture_jpeg()

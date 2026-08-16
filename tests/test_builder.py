@@ -21,6 +21,7 @@ def _load(name: str, filename: str):
     return module
 
 
+_load("constants", "constants.py")  # handler does `import constants`
 cycles = _load("cycles", "cycles.py")  # handler does `import cycles`
 builder = _load("builder_handler", "handler.py")
 

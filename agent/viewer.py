@@ -17,10 +17,10 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-log = logging.getLogger(__name__)
+from agent.constants import MJPEG_BOUNDARY as BOUNDARY
+from agent.constants import STREAM_WAIT_S
 
-BOUNDARY = "damframe"
-STREAM_WAIT_S = 1.0  # condition-wait slice so handler threads notice shutdown
+log = logging.getLogger(__name__)
 
 PAGE_HTML = """<!doctype html>
 <html><head><title>dam-agent viewer</title></head>

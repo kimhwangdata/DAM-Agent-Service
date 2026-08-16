@@ -14,6 +14,7 @@ from datetime import datetime, tzinfo
 from typing import Any, Protocol
 
 from agent.config import NIGHT_LUMA_EXIT, NIGHT_LUX_OFF, NIGHT_LUX_ON
+from agent.constants import CAMERA_MODEL_ALIASES, FRAME_DURATION_MIN_US
 
 log = logging.getLogger(__name__)
 
@@ -60,18 +61,10 @@ class FakeCamera:
         self._started = False
 
 
-# Shortest frame duration we ever ask for (30 fps) when extending the AE
-# exposure ceiling via MAX_EXPOSURE_MS.
-_FRAME_DURATION_MIN_US = 33_333
-
-# The Arducam Pivariety bridge MCU reports its own name instead of the
-# sensor behind it; every Pivariety module in this fleet is an IMX462
-# (UC-955), so report the real sensor.
-_MODEL_ALIASES = {"arducam-pivariety": "imx462"}
 
 
 def resolve_camera_model(model: str | None) -> str | None:
-    return _MODEL_ALIASES.get(model, model) if model else model
+    return CAMERA_MODEL_ALIASES.get(model, model) if model else model
 
 
 def night_decision(
@@ -151,7 +144,7 @@ class Picamera2Camera:
             # blinds low-light sensors like the IMX462 — see
             # docs/reference/rpi-camera-list.md).
             controls["FrameDurationLimits"] = (
-                _FRAME_DURATION_MIN_US,
+                FRAME_DURATION_MIN_US,
                 self._max_exposure_ms * 1000,
             )
         kwargs: dict[str, Any] = {}

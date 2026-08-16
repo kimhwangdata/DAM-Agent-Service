@@ -110,6 +110,11 @@ def zip_code() -> bytes:
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(SRC_DIR / "handler.py", "handler.py")
         zf.write(SRC_DIR / "cycles.py", "cycles.py")
+        zf.write(SRC_DIR / "constants.py", "constants.py")
+        zf.write(
+            SRC_DIR.parent / "shared" / "constants.py",
+            "shared/constants.py",
+        )
     return buffer.getvalue()
 
 
