@@ -13,7 +13,7 @@ import time
 from datetime import datetime, tzinfo
 from typing import Any, Protocol
 
-from agent.config import NIGHT_LUX_OFF, NIGHT_LUX_ON
+from agent.config import NIGHT_LUMA_EXIT, NIGHT_LUX_OFF, NIGHT_LUX_ON
 
 log = logging.getLogger(__name__)
 
@@ -70,14 +70,33 @@ def night_decision(
     is_night: bool,
     lux_on: float = NIGHT_LUX_ON,
     lux_off: float = NIGHT_LUX_OFF,
+    luma: float | None = None,
+    luma_exit: float = NIGHT_LUMA_EXIT,
 ) -> bool:
     """Should the camera be in manual night mode? Hysteresis between the
-    two thresholds; unknown lux keeps the current mode."""
+    two lux thresholds; unknown lux keeps the current mode. A blown
+    night frame (mean luma >= luma_exit) always exits: a saturated
+    sensor caps the lux estimate, so lux alone can never see daylight."""
+    if is_night and luma is not None and luma >= luma_exit:
+        return False
     if lux is None:
         return is_night
     if is_night:
         return lux < lux_off
     return lux < lux_on
+
+
+def mean_luma(jpeg: bytes) -> float | None:
+    """Cheap mean luminance (0-255) of a JPEG; None if PIL is missing."""
+    try:
+        from PIL import Image  # picamera2 depends on PIL, present on Pis
+    except ImportError:
+        return None
+    import io as _io
+
+    image = Image.open(_io.BytesIO(jpeg)).convert("L").resize((32, 32))
+    data = list(image.getdata())
+    return sum(data) / len(data)
 
 
 class Picamera2Camera:
@@ -153,16 +172,18 @@ class Picamera2Camera:
             metadata = request.get_metadata()
         finally:
             request.release()
+        jpeg = buffer.getvalue()
         if self._night_exposure_ms > 0:
-            self._update_night_mode(metadata.get("Lux"))
-        return buffer.getvalue(), captured_at, metadata
+            luma = mean_luma(jpeg) if self.is_night else None
+            self._update_night_mode(metadata.get("Lux"), luma)
+        return jpeg, captured_at, metadata
 
-    def _update_night_mode(self, lux: float | None) -> None:
+    def _update_night_mode(self, lux: float | None, luma: float | None) -> None:
         """Legacy camera_viewer.py AEC pattern: below the lux threshold,
         disable AE and set manual ExposureTime/AnalogueGain (the tuning
         file caps AE shutter at ~66 ms, far too short for night); above
         it, hand control back to AE. Applies to the NEXT capture."""
-        want_night = night_decision(lux, self.is_night)
+        want_night = night_decision(lux, self.is_night, luma=luma)
         if want_night == self.is_night:
             return
         if want_night:
@@ -178,7 +199,11 @@ class Picamera2Camera:
             )
         else:
             self._cam.set_controls({"AeEnable": True})
-            log.info("night mode OFF lux=%.1f", -1.0 if lux is None else lux)
+            log.info(
+                "night mode OFF lux=%.1f luma=%.0f",
+                -1.0 if lux is None else lux,
+                -1.0 if luma is None else luma,
+            )
         self.is_night = want_night
 
     def stop(self) -> None:

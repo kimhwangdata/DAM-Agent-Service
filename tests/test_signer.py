@@ -216,3 +216,23 @@ def test_wrong_path_and_method(tokens, agents):
     assert (
         handler.handle(_event(GOOD_BODY, method="GET"), **kwargs)["statusCode"] == 405
     )
+
+
+def test_sidecar_url_returned_when_requested(tokens, agents):
+    s3 = FakeS3()
+    body = dict(GOOD_BODY, sidecar=True)
+    resp = handler.handle(_event(body), s3=s3, table=tokens, agents=agents)
+    assert resp["statusCode"] == 200
+    data = _body(resp)
+    assert data["sidecar_key"] == "images/DIO21/2026-08-13/143059123.json"
+    assert data["sidecar_url"].endswith("143059123.json?sig=abc")
+    # sidecar presign uses JSON content type
+    sidecar_call = s3.calls[-1]
+    assert sidecar_call[1]["ContentType"] == "application/json"
+
+
+def test_no_sidecar_url_without_request(tokens, agents):
+    resp = handler.handle(
+        _event(GOOD_BODY), s3=FakeS3(), table=tokens, agents=agents
+    )
+    assert "sidecar_url" not in _body(resp)

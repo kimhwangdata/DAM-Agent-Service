@@ -43,7 +43,7 @@ REPORTED_KEYS = {
     "seq", "uploaded", "dropped", "skipped", "failed_attempts",
     "queue_depth", "interval_s", "capture_size", "timezone", "uptime_s",
     "pi_model", "camera", "temp_c", "throttled", "thermal_state", "event",
-    "stage", "capturing",
+    "stage", "capturing", "volt_core", "night_mode",
 }
 
 
@@ -163,9 +163,24 @@ def handle(event: dict, s3: Any, table: Any, agents: Any) -> dict[str, Any]:
     url = s3.generate_presigned_url(
         "put_object", Params=params, ExpiresIn=URL_TTL_SECONDS
     )
-    return _response(
-        200, {"status": "ok", "url": url, "key": key, "expires_in": URL_TTL_SECONDS}
-    )
+    response = {"status": "ok", "url": url, "key": key, "expires_in": URL_TTL_SECONDS}
+
+    # Optional metadata sidecar (architecture §7): one extra presigned PUT
+    # for the same basename with .json, so hardware/capture status can be
+    # logged next to every frame without widening device permissions.
+    if body.get("sidecar"):
+        sidecar_key = key[: -len(".jpg")] + ".json"
+        response["sidecar_url"] = s3.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": BUCKET,
+                "Key": sidecar_key,
+                "ContentType": "application/json",
+            },
+            ExpiresIn=URL_TTL_SECONDS,
+        )
+        response["sidecar_key"] = sidecar_key
+    return _response(200, response)
 
 
 def lambda_handler(event: dict, context: Any) -> dict[str, Any]:

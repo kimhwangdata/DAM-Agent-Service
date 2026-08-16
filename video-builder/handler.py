@@ -158,6 +158,126 @@ def run_ffmpeg(frames_dir: Path, output: Path) -> None:
         raise RuntimeError(f"ffmpeg failed rc={result.returncode}")
 
 
+def _list_sidecar_keys(
+    s3: Any, location_id: str, frame_range: cycles.FrameRange
+) -> list[str]:
+    prefix = f"{IMAGE_PREFIX}{location_id}/{frame_range.day}/"
+    keys: list[str] = []
+    kwargs: dict[str, Any] = {"Bucket": BUCKET, "Prefix": prefix}
+    while True:
+        page = s3.list_objects_v2(**kwargs)
+        for obj in page.get("Contents", []):
+            basename = obj["Key"].rsplit("/", 1)[-1]
+            if not basename.endswith(".json"):
+                continue
+            stem = basename[: -len(".json")]
+            if frame_range.lo <= stem < frame_range.hi:
+                keys.append(obj["Key"])
+        if not page.get("IsTruncated"):
+            break
+        kwargs["ContinuationToken"] = page["NextContinuationToken"]
+    return sorted(keys)
+
+
+def _summarize_sidecars(
+    s3: Any, location_id: str, cycle_date: str,
+    ranges: list[cycles.FrameRange], build_summary: dict[str, Any],
+) -> str | None:
+    """Digest the day's {hhmmssfff}.json sidecars into one text log for
+    videos/{loc}/{LOC}-{date}.log — the hardware-condition record that
+    pairs with the daily video. Returns the log text, or None if the day
+    has no sidecars (pre-sidecar agents)."""
+    keys: list[str] = []
+    for frame_range in ranges:
+        keys.extend(_list_sidecar_keys(s3, location_id, frame_range))
+    if not keys:
+        return None
+
+    def fetch(key: str) -> dict[str, Any] | None:
+        import io
+        buf = io.BytesIO()
+        try:
+            s3.download_fileobj(BUCKET, key, buf)
+            data = json.loads(buf.getvalue())
+            data["_stem"] = key.rsplit("/", 1)[-1][: -len(".json")]
+            return data
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_THREADS) as pool:
+        entries = [e for e in pool.map(fetch, keys) if e]
+
+    lines = [
+        f"# {location_id} {cycle_date} capture log "
+        f"(builder {BUILDER_VERSION}, {datetime.now(UTC).isoformat()})",
+    ]
+    first_status = next((e.get("status") or {} for e in entries), {})
+    lines.append(
+        "# device={device_id} pi={pi_model} camera={camera} "
+        "agent={agent_version} capture={capture_size}".format(
+            device_id=first_status.get("device_id", "?"),
+            pi_model=first_status.get("pi_model", "?"),
+            camera=first_status.get("camera", "?"),
+            agent_version=first_status.get("agent_version", "?"),
+            capture_size=first_status.get("capture_size", "?"),
+        )
+    )
+    lines.append(
+        f"# video frames={build_summary.get('frames')} "
+        f"skipped_damaged={build_summary.get('skipped_damaged')} "
+        f"sidecars={len(entries)}"
+    )
+    lines.append(
+        "# time      bytes  exp_s     gain  lux     temp_c volt   "
+        "throttled night"
+    )
+
+    def num(entry: dict, *path: str) -> Any:
+        value: Any = entry
+        for part in path:
+            value = value.get(part) if isinstance(value, dict) else None
+        return value
+
+    stats: dict[str, list[float]] = {"exp": [], "temp": [], "volt": [], "bytes": []}
+    for e in entries:
+        meta = e.get("camera_meta") or {}
+        status = e.get("status") or {}
+        exp_us = meta.get("ExposureTime")
+        exp_s = round(float(exp_us) / 1e6, 5) if exp_us is not None else None
+        gain = meta.get("AnalogueGain")
+        lux = meta.get("Lux")
+        temp = status.get("temp_c")
+        volt = status.get("volt_core")
+        night = "Y" if status.get("night_mode") else "-"
+        size = e.get("image_bytes")
+        for bucket, value in (("exp", exp_s), ("temp", temp),
+                              ("volt", volt), ("bytes", size)):
+            if value is not None:
+                stats[bucket].append(float(value))
+        lines.append(
+            f"{e.get('_stem', '?'):9} {size or 0:>6} "
+            f"{exp_s if exp_s is not None else '-':<9} "
+            f"{round(float(gain), 2) if gain is not None else '-':<5} "
+            f"{round(float(lux), 1) if lux is not None else '-':<7} "
+            f"{temp if temp is not None else '-':<6} "
+            f"{volt if volt is not None else '-':<6} "
+            f"{status.get('throttled', '-'):<9} {night}"
+        )
+
+    def rng(name: str, values: list[float]) -> str:
+        if not values:
+            return f"{name}=-"
+        return f"{name}={min(values):g}..{max(values):g}"
+
+    lines.append(
+        "# stats " + " ".join([
+            rng("exp_s", stats["exp"]), rng("temp_c", stats["temp"]),
+            rng("volt", stats["volt"]), rng("bytes", stats["bytes"]),
+        ])
+    )
+    return "\n".join(lines) + "\n"
+
+
 def handle_build(
     event: dict[str, Any],
     s3: Any,
@@ -232,6 +352,26 @@ def handle_build(
         "status": "ok", "key": video_key, "frames": frames,
         "skipped_damaged": skipped_damaged, "build_ms": build_ms,
     }
+
+    # Daily hardware log from the frame sidecars — best-effort: the video
+    # is the deliverable, a log failure must never fail the build.
+    try:
+        log_text = _summarize_sidecars(
+            s3, location_id, cycle_date,
+            cycles.frame_ranges(cycle_date, start, end), summary,
+        )
+        if log_text is not None:
+            log_path = Path(work_dir) / "day.log"
+            log_path.write_text(log_text, encoding="utf-8")
+            log_key = f"{VIDEO_PREFIX}{location_id}/{location_id}-{cycle_date}.log"
+            s3.upload_file(
+                str(log_path), BUCKET, log_key,
+                ExtraArgs={"ContentType": "text/plain"},
+            )
+            summary["log_key"] = log_key
+    except Exception:
+        logger.exception("sidecar log failed (build unaffected)")
+
     logger.info(json.dumps(summary))
     return summary
 

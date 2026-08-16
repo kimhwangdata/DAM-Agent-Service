@@ -35,6 +35,11 @@ DEFAULT_NIGHT_EXPOSURE_MS = 0
 DEFAULT_NIGHT_GAIN = 8.0
 NIGHT_LUX_ON = 10.0
 NIGHT_LUX_OFF = 30.0
+# Overexposure escape hatch: a saturated sensor caps the lux estimate, so
+# a blown night frame can never reach NIGHT_LUX_OFF (measured: dam-imx462-92
+# stuck all-white all morning, lux frozen, 2026-08-16). Mean JPEG luminance
+# at or above this exits night mode — a blown long-exposure IS daylight.
+NIGHT_LUMA_EXIT = 200
 # Optional raw sensor mode "W,H" (empty = libcamera's choice). Needed on
 # sensors whose auto-picked video mode crops the FoV: the OV5647's
 # 1920x1080 mode uses only 74% of the sensor width — set RAW_SIZE=1296,972

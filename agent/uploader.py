@@ -34,6 +34,34 @@ SIGN_TIMEOUT_S = 30
 PUT_TIMEOUT_S = 60
 
 
+# Camera metadata worth logging per frame (scalars/short tuples only — the
+# full picamera2 metadata also carries matrices and histograms).
+_SIDECAR_META_KEYS = (
+    "ExposureTime", "AnalogueGain", "DigitalGain", "Lux",
+    "ColourTemperature", "ColourGains", "ScalerCrop",
+    "SensorTemperature", "FocusFoM",
+)
+
+
+def build_sidecar(item: CaptureItem, status: dict[str, Any]) -> dict[str, Any]:
+    """Per-frame hardware/capture log, uploaded as {hhmmssfff}.json next to
+    the image (architecture §7): device basics + camera settings actually
+    used (exposure/gain/lux) + hardware condition at capture time."""
+    camera_meta: dict[str, Any] = {}
+    for key in _SIDECAR_META_KEYS:
+        value = item.camera_metadata.get(key)
+        if value is None:
+            continue
+        camera_meta[key] = list(value) if isinstance(value, tuple | list) else value
+    return {
+        "captured_at": item.captured_at.isoformat(),
+        "ulid": item.ulid,
+        "image_bytes": len(item.jpeg),
+        "camera_meta": camera_meta,
+        "status": status,
+    }
+
+
 class SkipUpload(Exception):
     """Server said the frame should be skipped (paused/unassigned) — §5."""
 
@@ -156,7 +184,9 @@ class Uploader:
                 backoff = min(BACKOFF_CAP_S, backoff * 2)
         return False
 
-    def _sign(self, date: str, filename: str, metadata: dict) -> dict:
+    def _sign(
+        self, date: str, filename: str, metadata: dict, sidecar: bool = False
+    ) -> dict:
         """POST /sign; raises SkipUpload for paused/unassigned answers."""
         body: dict[str, Any] = {
             "token": self._settings.device_token,
@@ -166,6 +196,8 @@ class Uploader:
             "metadata": metadata,
             "device_id": self._settings.device_id,
         }
+        if sidecar:
+            body["sidecar"] = True
         if self.status_fn is not None:
             body["status"] = self.status_fn()
         request = urllib.request.Request(
@@ -201,6 +233,7 @@ class Uploader:
             item.captured_at.strftime("%Y-%m-%d"),
             f"{format_hhmmssfff(item.captured_at)}.jpg",
             metadata,
+            sidecar=True,
         )
         key_parts = str(signed.get("key", "")).split("/")
         if len(key_parts) >= 2 and key_parts[1]:
@@ -212,7 +245,31 @@ class Uploader:
         )
         with self._urlopen(put_request, timeout=PUT_TIMEOUT_S):
             pass
+        self._upload_sidecar(item, signed)
         return signed["key"]
+
+    def _upload_sidecar(self, item: CaptureItem, signed: dict) -> None:
+        """Best-effort hardware/capture log next to the frame (§7 sidecar).
+        Never fails the frame — the image is already safely uploaded."""
+        sidecar_url = signed.get("sidecar_url")
+        if not sidecar_url:
+            return
+        try:
+            status = self.status_fn() if self.status_fn is not None else {}
+            payload = json.dumps(
+                build_sidecar(item, status), default=str
+            ).encode("utf-8")
+            request = urllib.request.Request(
+                sidecar_url, data=payload, method="PUT",
+                headers={"Content-Type": "application/json"},
+            )
+            with self._urlopen(request, timeout=PUT_TIMEOUT_S):
+                pass
+        except Exception as exc:
+            log.warning(
+                "sidecar upload failed key=%s error=%s",
+                signed.get("sidecar_key"), exc,
+            )
 
     def send_heartbeat(self) -> None:
         """Status-only /sign (URL unused) — keeps the manager informed

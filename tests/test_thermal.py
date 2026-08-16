@@ -63,3 +63,29 @@ def test_status_carries_temp_and_throttled():
     status = m.check()
     assert status.temp_c == 61.2
     assert status.throttled == "0x0"
+
+
+def test_read_volt_core_parses_vcgencmd(monkeypatch):
+    import subprocess
+
+    from agent import thermal
+
+    class FakeResult:
+        stdout = "volt=1.3125V\n"
+
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: FakeResult()
+    )
+    assert thermal.read_volt_core() == 1.3125
+
+
+def test_read_volt_core_none_when_unavailable(monkeypatch):
+    import subprocess
+
+    from agent import thermal
+
+    def boom(*a, **k):
+        raise OSError("no vcgencmd")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert thermal.read_volt_core() is None

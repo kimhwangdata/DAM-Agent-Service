@@ -29,6 +29,20 @@ def read_temp_c() -> float | None:
         return None
 
 
+def read_volt_core() -> float | None:
+    """Core rail voltage via vcgencmd, e.g. 1.3125; None if unavailable.
+    (Pi 3/Zero cannot measure the 5 V input rail — the core voltage plus
+    the get_throttled under-voltage bits are the available power signals.)"""
+    try:
+        out = subprocess.run(
+            ["vcgencmd", "measure_volts", "core"],
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout
+        return float(out.strip().split("=", 1)[-1].rstrip("V"))
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
 def read_throttled() -> str | None:
     """Firmware throttle flags via vcgencmd, e.g. '0x0'; None if unavailable."""
     try:

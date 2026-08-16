@@ -224,3 +224,58 @@ def test_stop_aborts_retry_loop():
     uploader = Uploader(SETTINGS, urlopen=http, sleep=lambda s: uploader._stop.set())
     assert uploader.process(make_item()) is False
     assert uploader.counters()["uploaded"] == 0
+
+
+def test_build_sidecar_contents():
+    from agent.uploader import build_sidecar
+    item = make_item(7)
+    item = CaptureItem(
+        jpeg=item.jpeg, captured_at=item.captured_at, ulid=item.ulid,
+        key=item.key,
+        camera_metadata={
+            "ExposureTime": 45999, "AnalogueGain": 4.0, "Lux": 0.8,
+            "ScalerCrop": (0, 0, 1920, 1080),
+            "ColourCorrectionMatrix": [1] * 9,  # not whitelisted
+        },
+    )
+    sidecar = build_sidecar(item, {"device_id": "dam-test", "temp_c": 55.1})
+    assert sidecar["ulid"] == item.ulid
+    assert sidecar["image_bytes"] == len(item.jpeg)
+    assert sidecar["camera_meta"]["ExposureTime"] == 45999
+    assert sidecar["camera_meta"]["ScalerCrop"] == [0, 0, 1920, 1080]
+    assert "ColourCorrectionMatrix" not in sidecar["camera_meta"]
+    assert sidecar["status"]["temp_c"] == 55.1
+
+
+def test_sidecar_uploaded_after_frame():
+    http = FakeHttp(sign_answer={
+        "status": "ok", "url": "https://s3.example/put",
+        "key": "images/TEST/2026-08-13/120007000.jpg",
+        "sidecar_url": "https://s3.example/put-json",
+        "sidecar_key": "images/TEST/2026-08-13/120007000.json",
+    })
+    uploader = make_uploader(http)
+    uploader.status_fn = lambda: {"device_id": "dam-test"}
+    assert uploader.process(make_item(7))
+    assert len(http.put_requests) == 2  # frame, then sidecar
+    assert http.sign_requests[0]["sidecar"] is True
+    sidecar_req = http.put_requests[1]
+    assert sidecar_req.full_url == "https://s3.example/put-json"
+    body = json.loads(sidecar_req.data)
+    assert body["status"]["device_id"] == "dam-test"
+
+
+def test_sidecar_failure_does_not_fail_frame():
+    class SidecarFailingHttp(FakeHttp):
+        def __call__(self, request, timeout=None):
+            if request.full_url.endswith("put-json"):
+                raise urllib.error.URLError("sidecar boom")
+            return super().__call__(request, timeout)
+
+    http = SidecarFailingHttp(sign_answer={
+        "status": "ok", "url": "https://s3.example/put",
+        "key": "images/TEST/2026-08-13/120008000.jpg",
+        "sidecar_url": "https://s3.example/put-json",
+    })
+    uploader = make_uploader(http)
+    assert uploader.process(make_item(8))  # frame still succeeds

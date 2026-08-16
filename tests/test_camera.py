@@ -62,3 +62,32 @@ class TestNightDecision:
         from agent.camera import night_decision
         assert night_decision(None, True) is True
         assert night_decision(None, False) is False
+
+
+class TestNightBlownFrameEscape:
+    def test_blown_night_frame_exits_regardless_of_lux(self):
+        from agent.camera import night_decision
+        # lux frozen low by saturation - the old logic would stay night
+        assert night_decision(0.5, True, luma=255.0) is False
+        assert night_decision(0.5, True, luma=200.0) is False
+
+    def test_dark_night_frame_stays_night(self):
+        from agent.camera import night_decision
+        assert night_decision(0.5, True, luma=60.0) is True
+
+    def test_luma_does_not_affect_day_mode(self):
+        from agent.camera import night_decision
+        assert night_decision(2.0, False, luma=255.0) is True  # dark scene enters
+
+    def test_mean_luma_measures_brightness(self):
+        import io
+
+        from PIL import Image
+
+        from agent.camera import mean_luma
+        white = io.BytesIO()
+        Image.new("RGB", (64, 64), (255, 255, 255)).save(white, format="JPEG")
+        dark = io.BytesIO()
+        Image.new("RGB", (64, 64), (10, 10, 10)).save(dark, format="JPEG")
+        assert mean_luma(white.getvalue()) > 240
+        assert mean_luma(dark.getvalue()) < 30

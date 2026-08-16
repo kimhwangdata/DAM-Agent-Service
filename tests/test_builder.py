@@ -268,3 +268,46 @@ def test_real_ffmpeg_encodes(tmp_path, monkeypatch):
     output = tmp_path / "out.mp4"
     builder.run_ffmpeg(frames, output)
     assert output.stat().st_size > 500
+
+
+def sidecar_json(temp, exp_us, volt="1.28"):
+    import json as _json
+    return _json.dumps({
+        "captured_at": "2026-08-13T12:00:00+09:00",
+        "image_bytes": 90000,
+        "camera_meta": {"ExposureTime": exp_us, "AnalogueGain": 2.0, "Lux": 40.0},
+        "status": {"device_id": "dam-test", "pi_model": "Pi 3", "camera": "imx477",
+                   "agent_version": "0.1.0", "capture_size": "1280,720",
+                   "temp_c": temp, "volt_core": float(volt), "throttled": "0x0"},
+    }).encode()
+
+
+class FakeS3WithSidecars(FakeS3):
+    def download_fileobj(self, Bucket, Key, Fileobj):
+        Fileobj.write(self.objects[Key])
+
+
+class TestDayLog:
+    def test_log_summarizes_sidecars(self, tmp_path):
+        s3 = FakeS3WithSidecars({
+            day_key("JAYANG3", "2026-08-13", "120000000"): GOOD_JPEG,
+            "images/JAYANG3/2026-08-13/120000000.json": sidecar_json(55.0, 46000),
+            "images/JAYANG3/2026-08-13/120048000.json": sidecar_json(60.5, 66000),
+        })
+        agents = FakeAgents([])
+        summary = TestBuild().build(s3, agents, tmp_path)
+        assert summary["log_key"] == "videos/JAYANG3/JAYANG3-2026-08-13.log"
+        log_upload = next(u for u in s3.uploads if u["key"].endswith(".log"))
+        text = log_upload["bytes"].decode()
+        assert "device=dam-test" in text
+        assert "120000000" in text and "120048000" in text
+        assert "sidecars=2" in text
+        assert "temp_c=55..60.5" in text
+
+    def test_no_sidecars_no_log(self, tmp_path):
+        s3 = FakeS3WithSidecars({
+            day_key("JAYANG3", "2026-08-13", "120000000"): GOOD_JPEG,
+        })
+        summary = TestBuild().build(s3, FakeAgents([]), tmp_path)
+        assert "log_key" not in summary
+        assert not any(u["key"].endswith(".log") for u in s3.uploads)

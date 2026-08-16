@@ -22,7 +22,12 @@ from agent import __version__
 from agent.camera import CameraSource, FakeCamera, Picamera2Camera
 from agent.capture import CaptureItem, CaptureLoop
 from agent.config import Settings, load_settings
-from agent.thermal import ThermalMonitor, ThermalStatus, read_pi_model
+from agent.thermal import (
+    ThermalMonitor,
+    ThermalStatus,
+    read_pi_model,
+    read_volt_core,
+)
 from agent.uploader import Uploader
 from agent.viewer import FrameStore, Viewer
 
@@ -135,6 +140,9 @@ class Agent:
             status["temp_c"] = round(thermal.temp_c, 1)
         if thermal.throttled is not None:
             status["throttled"] = thermal.throttled
+        volt_core = read_volt_core()
+        if volt_core is not None:
+            status["volt_core"] = volt_core
         if self._pi_model:
             status["pi_model"] = self._pi_model
         model = getattr(self.camera, "model", None)
