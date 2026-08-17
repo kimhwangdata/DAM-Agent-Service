@@ -70,6 +70,8 @@ upload-signer/      AWS Lambda issuing presigned upload URLs to devices
                     (ADR-0003 — devices hold app tokens, never AWS credentials)
 agent-manager/      Fleet operations: agent-api Lambda (heartbeat/desired state,
                     operator API) + static manager UI (docs/design/02-agent-manager.md)
+shared/             Cross-service constants (deployed with the agent and inside
+                    each Lambda zip)
 systemd/            Unit files: agent service (+ timer if used) installed on the Pi
 scripts/            deploy.sh / deploy.ps1 (rsync/scp over SSH + service restart),
                     provisioning helpers (enable camera, install deps on the Pi),

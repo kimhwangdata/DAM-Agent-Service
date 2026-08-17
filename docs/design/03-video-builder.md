@@ -177,3 +177,15 @@ deploy script → handler (dispatch + build) with tests (fake S3/DynamoDB/
 ffmpeg-stub; window math incl. midnight crossing) → deploy → first real
 build against a completed JAYANG day (including the damaged-skip case) →
 webapp pool-sync subfolder fix + sync → watch the first video play.
+
+## Updates since acceptance
+
+- **2026-08-16 — daily hardware log**: after each build the day's
+  `{hhmmssfff}.json` sidecars are summarized into
+  `videos/{loc}/{LOC}-{date}.log` (per-frame exposure/gain/lux/temp/volt
+  rows + stats; best-effort, never fails the build). The webapp's pool
+  sync ignores non-video extensions.
+- **2026-08-17 — constants convention**: service constants in
+  `video-builder/constants.py`, shared values from `shared/constants.py`
+  (both packaged into the Lambda zip); ffmpeg framerate derives from the
+  shared `FPS`.

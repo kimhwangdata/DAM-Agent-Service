@@ -235,3 +235,23 @@ confirm objects appear under the correct S3 day folder.
 - CLAUDE.md error-handling wording updated the same way.
 - ADR-0001 (capture backend) is resolved as picamera2 by §1; recorded in the
   ADR index when Phase 0 creates it.
+
+## Updates since acceptance
+
+- **2026-08-16 — capture window gates capture** (supersedes the
+  always-capture reading of §3): the agent learns
+  `control.video_window_start/_end` from every signer response, captures
+  only inside the window (heartbeats continue outside, rate-limited to
+  ≥30 s), and adapts its interval so the window still fills
+  `VIDEO_MINUTES` of video (`interval = window_seconds // 1800`).
+- **2026-08-14/15 — capture additions**: per-frame `{hhmmssfff}.json`
+  hardware sidecars uploaded via a second presigned URL; manual night
+  mode for low-light sensors (`NIGHT_EXPOSURE_MS`/`NIGHT_GAIN`,
+  lux 10/30 hysteresis + blown-frame luma escape); optional
+  `TUNING_FILE` (NoIR) and `RAW_SIZE` (full-FoV sensor-mode pin, e.g.
+  OV5647 1296,972); live-view preview boost (~1 fps while an MJPEG
+  client is connected — previews never upload); `volt_core` +
+  `throttled` power reporting in status.
+- **2026-08-17 — constants convention**: pure code constants moved to
+  `agent/constants.py`, cross-service values to `shared/constants.py`
+  (deployed next to `agent/` on the Pi).

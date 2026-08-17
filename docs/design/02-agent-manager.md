@@ -443,3 +443,15 @@ Phase 2 spans both repos, device plane first:
   frame, controls).
 
 The video builder moves to Phase 3.
+
+## Updates since acceptance
+
+- **2026-08-16 — §5.3 superseded: the video window IS a capture gate.**
+  The signer returns the window in every `/sign` answer; agents rest
+  outside it (heartbeats continue) and adapt their capture interval to
+  the window length so the daily video still reaches `VIDEO_MINUTES`.
+  The builder's frame-range selection is unchanged and now matches what
+  was actually captured.
+- **2026-08-16 — `reported` additions**: `volt_core` (core rail volts)
+  and `night_mode`; the manager UI shows decoded power state
+  (under-voltage now/occurred) per device.
