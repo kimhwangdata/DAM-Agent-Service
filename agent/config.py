@@ -47,6 +47,12 @@ NIGHT_LUX_OFF = 30.0
 # stuck all-white all morning, lux frozen, 2026-08-16). Mean JPEG luminance
 # at or above this exits night mode — a blown long-exposure IS daylight.
 NIGHT_LUMA_EXIT = 200
+# Anti-flicker hardening (A/B nights of 2026-08-16/17: scenes hovering at
+# a threshold made the mode oscillate). Transitions need this many
+# consecutive agreeing frames, and after a blown-frame exit the mode
+# cannot re-enter night for the cooldown period.
+NIGHT_CONFIRM_FRAMES = 3
+NIGHT_REENTRY_COOLDOWN_S = 900.0
 # Optional raw sensor mode "W,H" (empty = libcamera's choice). Needed on
 # sensors whose auto-picked video mode crops the FoV: the OV5647's
 # 1920x1080 mode uses only 74% of the sensor width — set RAW_SIZE=1296,972

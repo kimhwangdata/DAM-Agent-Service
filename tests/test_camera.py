@@ -39,58 +39,69 @@ def test_picamera2_module_loads_without_picamera2_installed():
         cam.capture_jpeg()
 
 
-class TestNightDecision:
-    def test_dark_scene_turns_night_on(self):
-        from agent.camera import night_decision
-        assert night_decision(2.0, False) is True
+class TestNightController:
+    def _controller(self, **kw):
+        from agent.camera import NightController
+        state = {"t": 0.0}
+        kw.setdefault("clock", lambda: state["t"])
+        c = NightController(**kw)
+        c._test_time = state  # advance via c._test_time["t"]
+        return c
 
-    def test_bright_scene_stays_day(self):
-        from agent.camera import night_decision
-        assert night_decision(500.0, False) is False
+    def test_entry_needs_consecutive_dark_frames(self):
+        c = self._controller()
+        assert c.update(2.0, None) is False
+        assert c.update(2.0, None) is False
+        assert c.update(2.0, None) is True  # third confirmation enters
 
-    def test_hysteresis_band_keeps_current_mode(self):
-        from agent.camera import night_decision
-        # 20 lux: above ON (10) so day stays day; below OFF (30) so night stays night
-        assert night_decision(20.0, False) is False
-        assert night_decision(20.0, True) is True
+    def test_lux_blip_does_not_enter(self):
+        c = self._controller()
+        c.update(2.0, None)
+        c.update(15.0, None)  # blip above threshold resets the streak
+        c.update(2.0, None)
+        assert c.update(2.0, None) is False
 
-    def test_bright_morning_turns_night_off(self):
-        from agent.camera import night_decision
-        assert night_decision(100.0, True) is False
+    def _make_night(self, c):
+        for _ in range(3):
+            c.update(2.0, None)
+        assert c.is_night
 
-    def test_unknown_lux_keeps_mode(self):
-        from agent.camera import night_decision
-        assert night_decision(None, True) is True
-        assert night_decision(None, False) is False
+    def test_single_blown_frame_does_not_exit(self):
+        c = self._controller()
+        self._make_night(c)
+        assert c.update(0.5, 255.0) is True  # one blown frame ignored
+        assert c.update(0.5, 60.0) is True   # streak reset
 
+    def test_three_blown_frames_exit_with_cooldown(self):
+        c = self._controller()
+        self._make_night(c)
+        c.update(0.5, 255.0)
+        c.update(0.5, 255.0)
+        assert c.update(0.5, 255.0) is False  # exits
+        # still dark by lux, but cooldown blocks re-entry
+        for _ in range(5):
+            assert c.update(0.5, None) is False
+        c._test_time["t"] += 901  # cooldown elapsed
+        c.update(0.5, None)
+        c.update(0.5, None)
+        assert c.update(0.5, None) is True  # re-enters after cooldown
 
-class TestNightBlownFrameEscape:
-    def test_blown_night_frame_exits_regardless_of_lux(self):
-        from agent.camera import night_decision
-        # lux frozen low by saturation - the old logic would stay night
-        assert night_decision(0.5, True, luma=255.0) is False
-        assert night_decision(0.5, True, luma=200.0) is False
+    def test_daylight_lux_exit_has_no_cooldown(self):
+        c = self._controller()
+        self._make_night(c)
+        for _ in range(3):
+            c.update(500.0, 100.0)
+        assert c.is_night is False
+        # night falls again - no cooldown for a trusted lux exit
+        c.update(2.0, None)
+        c.update(2.0, None)
+        assert c.update(2.0, None) is True
 
-    def test_dark_night_frame_stays_night(self):
-        from agent.camera import night_decision
-        assert night_decision(0.5, True, luma=60.0) is True
-
-    def test_luma_does_not_affect_day_mode(self):
-        from agent.camera import night_decision
-        assert night_decision(2.0, False, luma=255.0) is True  # dark scene enters
-
-    def test_mean_luma_measures_brightness(self):
-        import io
-
-        from PIL import Image
-
-        from agent.camera import mean_luma
-        white = io.BytesIO()
-        Image.new("RGB", (64, 64), (255, 255, 255)).save(white, format="JPEG")
-        dark = io.BytesIO()
-        Image.new("RGB", (64, 64), (10, 10, 10)).save(dark, format="JPEG")
-        assert mean_luma(white.getvalue()) > 240
-        assert mean_luma(dark.getvalue()) < 30
+    def test_unknown_values_keep_state(self):
+        c = self._controller()
+        assert c.update(None, None) is False
+        self._make_night(c)
+        assert c.update(None, None) is True
 
 
 def test_pivariety_model_reports_real_sensor():

@@ -13,7 +13,13 @@ import time
 from datetime import datetime, tzinfo
 from typing import Any, Protocol
 
-from agent.config import NIGHT_LUMA_EXIT, NIGHT_LUX_OFF, NIGHT_LUX_ON
+from agent.config import (
+    NIGHT_CONFIRM_FRAMES,
+    NIGHT_LUMA_EXIT,
+    NIGHT_LUX_OFF,
+    NIGHT_LUX_ON,
+    NIGHT_REENTRY_COOLDOWN_S,
+)
 from agent.constants import CAMERA_MODEL_ALIASES, FRAME_DURATION_MIN_US
 
 log = logging.getLogger(__name__)
@@ -67,25 +73,70 @@ def resolve_camera_model(model: str | None) -> str | None:
     return CAMERA_MODEL_ALIASES.get(model, model) if model else model
 
 
-def night_decision(
-    lux: float | None,
-    is_night: bool,
-    lux_on: float = NIGHT_LUX_ON,
-    lux_off: float = NIGHT_LUX_OFF,
-    luma: float | None = None,
-    luma_exit: float = NIGHT_LUMA_EXIT,
-) -> bool:
-    """Should the camera be in manual night mode? Hysteresis between the
-    two lux thresholds; unknown lux keeps the current mode. A blown
-    night frame (mean luma >= luma_exit) always exits: a saturated
-    sensor caps the lux estimate, so lux alone can never see daylight."""
-    if is_night and luma is not None and luma >= luma_exit:
-        return False
-    if lux is None:
-        return is_night
-    if is_night:
-        return lux < lux_off
-    return lux < lux_on
+class NightController:
+    """Anti-flicker night-mode decision (A/B measured 2026-08-16/17).
+
+    Naive per-frame thresholds oscillate when a scene sits AT a
+    threshold (a room lamp put one camera at exactly ~10 lux, another's
+    long exposure at luma ~202). Hardening:
+
+    - transitions need ``confirm_frames`` consecutive agreeing frames
+      (a lone blip in either direction is ignored);
+    - a blown-frame exit (saturated sensor: lux is untrustworthy, but a
+      blown long exposure IS bright light) starts a re-entry cooldown so
+      a night-time light source causes at most one flip per cooldown;
+    - a high-lux exit (real daylight, trustworthy) needs no cooldown.
+    """
+
+    def __init__(
+        self,
+        lux_on: float = NIGHT_LUX_ON,
+        lux_off: float = NIGHT_LUX_OFF,
+        luma_exit: float = NIGHT_LUMA_EXIT,
+        confirm_frames: int = NIGHT_CONFIRM_FRAMES,
+        cooldown_s: float = NIGHT_REENTRY_COOLDOWN_S,
+        clock: Any = time.monotonic,
+    ) -> None:
+        self._lux_on = lux_on
+        self._lux_off = lux_off
+        self._luma_exit = luma_exit
+        self._confirm = confirm_frames
+        self._cooldown_s = cooldown_s
+        self._clock = clock
+        self.is_night = False
+        self._dark_streak = 0
+        self._exit_streak = 0
+        self._cooldown_until = 0.0
+
+    def update(self, lux: float | None, luma: float | None) -> bool:
+        """Feed one frame's measurements; returns the desired mode."""
+        if self.is_night:
+            blown = luma is not None and luma >= self._luma_exit
+            bright = lux is not None and lux >= self._lux_off
+            if blown or bright:
+                self._exit_streak += 1
+                if self._exit_streak >= self._confirm:
+                    self.is_night = False
+                    self._exit_streak = 0
+                    if blown:
+                        # untrusted brightness source — back off before
+                        # trusting the lux entry threshold again
+                        self._cooldown_until = (
+                            self._clock() + self._cooldown_s
+                        )
+            else:
+                self._exit_streak = 0
+        else:
+            self._dark_streak = 0 if (
+                lux is None or lux >= self._lux_on
+            ) else self._dark_streak + 1
+            if (
+                self._dark_streak >= self._confirm
+                and self._clock() >= self._cooldown_until
+            ):
+                self.is_night = True
+                self._dark_streak = 0
+        return self.is_night
 
 
 def mean_luma(jpeg: bytes) -> float | None:
@@ -123,8 +174,12 @@ class Picamera2Camera:
         self._night_exposure_ms = night_exposure_ms
         self._night_gain = night_gain
         self._raw_size = raw_size
-        self.is_night = False
+        self._night = NightController()
         self._cam: Any = None
+
+    @property
+    def is_night(self) -> bool:
+        return self._night.is_night
 
     def start(self) -> None:
         try:
@@ -185,8 +240,9 @@ class Picamera2Camera:
         disable AE and set manual ExposureTime/AnalogueGain (the tuning
         file caps AE shutter at ~66 ms, far too short for night); above
         it, hand control back to AE. Applies to the NEXT capture."""
-        want_night = night_decision(lux, self.is_night, luma=luma)
-        if want_night == self.is_night:
+        was_night = self._night.is_night
+        want_night = self._night.update(lux, luma)
+        if want_night == was_night:
             return
         if want_night:
             self._cam.set_controls({
@@ -206,7 +262,7 @@ class Picamera2Camera:
                 -1.0 if lux is None else lux,
                 -1.0 if luma is None else luma,
             )
-        self.is_night = want_night
+
 
     def stop(self) -> None:
         if self._cam is not None:
