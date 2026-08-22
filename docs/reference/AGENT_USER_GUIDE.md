@@ -36,7 +36,7 @@ Common optional keys (defaults in `agent/config.py`):
 | `RAW_SIZE` | auto | pin the sensor mode when auto-pick crops the FoV (see §5) |
 | `TUNING_FILE` | auto | e.g. `imx219_noir.json` on filterless NoIR modules |
 | `MAX_EXPOSURE_MS` | 0 | frame-duration ceiling for night mode |
-| `NIGHT_EXPOSURE_MS` / `NIGHT_GAIN` | 0 / 8 | manual night mode on low-light sensors (IMX462: `250`/`2` measured best for indoor-lit sites) |
+| `NIGHT_EXPOSURE_MS` / `NIGHT_GAIN` | 0 / 8 | manual night mode on low-light sensors (IMX462: `250`/`2` measured best for indoor-lit sites). While night mode is on, every capture cycle starts with an **AE metering probe** (~3 s) so the exit decision reads true lux — without it a fixed night exposure saturates at dawn and exits ~25 min late (fixed 2026-08-23) |
 
 `LOCATION_ID` stays **empty**: the location assignment and the capture
 window are operator-owned in the cloud control plane (§3), not on the

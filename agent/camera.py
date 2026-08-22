@@ -18,6 +18,8 @@ from agent.config import (
     NIGHT_LUMA_EXIT,
     NIGHT_LUX_OFF,
     NIGHT_LUX_ON,
+    NIGHT_MANUAL_SETTLE_S,
+    NIGHT_PROBE_SETTLE_S,
     NIGHT_REENTRY_COOLDOWN_S,
 )
 from agent.constants import CAMERA_MODEL_ALIASES, FRAME_DURATION_MIN_US
@@ -221,6 +223,10 @@ class Picamera2Camera:
     def capture_jpeg(self) -> tuple[bytes, datetime, dict[str, Any]]:
         if self._cam is None:
             raise CameraError("Picamera2Camera used before start()")
+        if self._night_exposure_ms > 0 and self._night.is_night:
+            # Night exit is decided from the probe's trusted lux, once per
+            # cycle — the manual frame below feeds no measurement.
+            self._probe_ae()
         captured_at = datetime.now(self._tz)
         buffer = io.BytesIO()
         request = self._cam.capture_request()
@@ -230,10 +236,35 @@ class Picamera2Camera:
         finally:
             request.release()
         jpeg = buffer.getvalue()
-        if self._night_exposure_ms > 0:
-            luma = mean_luma(jpeg) if self.is_night else None
-            self._update_night_mode(metadata.get("Lux"), luma)
+        if self._night_exposure_ms > 0 and not self._night.is_night:
+            # Day side: AE metadata lux is trustworthy as-is.
+            self._update_night_mode(metadata.get("Lux"), None)
         return jpeg, captured_at, metadata
+
+    def _probe_ae(self) -> None:
+        """AE metering probe before each night capture: re-enable AE, let
+        it settle, and feed the TRUE scene lux to the controller. Under a
+        fixed manual night exposure a brightening scene saturates the
+        sensor and caps the lux estimate below NIGHT_LUX_OFF, so night
+        mode exited dawn ~25 min late (measured 2026-08-22, JAYANGN).
+        The AE frames are metering-only; the uploaded frame is captured
+        after the mode's controls are settled."""
+        self._cam.set_controls({"AeEnable": True})
+        time.sleep(NIGHT_PROBE_SETTLE_S)
+        lux = self._cam.capture_metadata().get("Lux")
+        if self._night.update(lux, None):
+            # staying in night mode: restore the manual night exposure
+            self._cam.set_controls({
+                "AeEnable": False,
+                "ExposureTime": self._night_exposure_ms * 1000,
+                "AnalogueGain": self._night_gain,
+            })
+            time.sleep(NIGHT_MANUAL_SETTLE_S)
+        else:
+            log.info(
+                "night mode OFF (AE probe) lux=%.1f",
+                -1.0 if lux is None else lux,
+            )
 
     def _update_night_mode(self, lux: float | None, luma: float | None) -> None:
         """Legacy camera_viewer.py AEC pattern: below the lux threshold,

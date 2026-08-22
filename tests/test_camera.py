@@ -104,6 +104,55 @@ class TestNightController:
         assert c.update(None, None) is True
 
 
+class _FakeCam:
+    """Records set_controls calls; returns a scripted Lux per probe."""
+
+    def __init__(self, lux_values):
+        self._lux = iter(lux_values)
+        self.controls_calls = []
+
+    def set_controls(self, controls):
+        self.controls_calls.append(controls)
+
+    def capture_metadata(self):
+        return {"Lux": next(self._lux)}
+
+
+class TestAeProbe:
+    """The dawn-exit fix (2026-08-23): while night mode is on, every
+    capture cycle meters with AE first so the exit decision never sees
+    a saturated lux estimate."""
+
+    def _night_camera(self, lux_values, monkeypatch):
+        monkeypatch.setattr("agent.camera.time.sleep", lambda s: None)
+        cam = Picamera2Camera(tz=TZ, night_exposure_ms=250, night_gain=2.0)
+        cam._night.is_night = True
+        cam._cam = _FakeCam(lux_values)
+        return cam
+
+    def test_dark_probe_stays_night_and_restores_manual(self, monkeypatch):
+        cam = self._night_camera([0.5], monkeypatch)
+        cam._probe_ae()
+        assert cam.is_night is True
+        assert cam._cam.controls_calls[0] == {"AeEnable": True}
+        assert cam._cam.controls_calls[-1] == {
+            "AeEnable": False,
+            "ExposureTime": 250_000,
+            "AnalogueGain": 2.0,
+        }
+
+    def test_bright_probes_exit_after_confirm_frames(self, monkeypatch):
+        # dawn: true lux is far above NIGHT_LUX_OFF once AE meters it
+        cam = self._night_camera([100.0, 120.0, 150.0], monkeypatch)
+        cam._probe_ae()
+        cam._probe_ae()
+        assert cam.is_night is True  # two agreeing probes are not enough
+        cam._probe_ae()
+        assert cam.is_night is False  # third confirmation exits
+        # AE was left enabled — no manual re-apply after the exit probe
+        assert cam._cam.controls_calls[-1] == {"AeEnable": True}
+
+
 def test_pivariety_model_reports_real_sensor():
     from agent.camera import resolve_camera_model
     assert resolve_camera_model("arducam-pivariety") == "imx462"

@@ -53,6 +53,15 @@ NIGHT_LUMA_EXIT = 200
 # cannot re-enter night for the cooldown period.
 NIGHT_CONFIRM_FRAMES = 3
 NIGHT_REENTRY_COOLDOWN_S = 900.0
+# AE metering probe (2026-08-23): while night mode is on, every capture
+# cycle first re-enables AE, lets it settle, and reads the TRUE scene lux
+# for the exit decision. A fixed manual night exposure saturates the
+# sensor at dawn, capping the lux estimate far below NIGHT_LUX_OFF
+# (measured 2026-08-22: "22 lux" under 500 ms at sunrise, 101+ lux the
+# moment AE resumed — night mode exited ~25 min late, one blown minute
+# in the daily video). The probe costs ~3 s per 48 s cycle, night only.
+NIGHT_PROBE_SETTLE_S = 2.0  # AE convergence before reading lux
+NIGHT_MANUAL_SETTLE_S = 1.0  # manual exposure taking effect after re-apply
 # Optional raw sensor mode "W,H" (empty = libcamera's choice). Needed on
 # sensors whose auto-picked video mode crops the FoV: the OV5647's
 # 1920x1080 mode uses only 74% of the sensor width — set RAW_SIZE=1296,972
