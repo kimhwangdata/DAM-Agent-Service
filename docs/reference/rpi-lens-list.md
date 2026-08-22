@@ -25,6 +25,10 @@ CS-mount HQ cameras without an adapter.
 | 7 | Telephoto | unbranded | Shop1987458 Store (AliExpress) | **8 mm** | ~40–45° on 1/2.5" (n/p) | n/p | **2 MP (1080p)** | n/p | Narrow view — distant scenery; only 2 MP rated, soft on 12 MP sensors |
 | 8 | Starlight lens | **Witrue** | AliExpress | **4 mm** | ~70–80° on 1/2.5" (n/p) | **F1.5** | **5 MP, 1/2.5"** | Starlight class, metal body, IR-suitable | The best documented of the set |
 | 9 | Telephoto | **Witrue** | AliExpress | **8 mm** | ~40–45° on 1/2.5" (n/p) | n/p (8 mm class is ~F1.8) | 5 MP class (n/p) | n/p | Likely the lens on `dam-imx477-45-1` (hostname = 45° max FoV) |
+| 10 | Ultra-wide **CS-mount** lens | **Arducam** (LN051) | Arducam / Amazon | **3.2 mm** | **120° HFoV** on the HQ camera | **F2.0** (fixed iris) | **12 MP class, 1/1.7" format** (fully covers the 1/2.3" IMX477) | no | CS-mount (not M12), manual focus, Φ28×30 mm, 54 g. Mounted on `dam-imx477cs-120` (cs marks the CS mount, disambiguating from the M12 fisheye unit `dam-imx477-120`) |
+| 11 | Fisheye **CS-mount** lens | generic (AICO ACCF021163MP class) | Amazon / AliExpress | **2.1 mm** | **160° DFoV** (~140° H) at 1/2.7" | **F1.6** | **3 MP, 1/2.7" format** | no | CS-mount wide fisheye. Mounted on `dam-imx477-160-z1` (JAYANG5). Caveats on the IMX477: the 1/2.7" image circle is smaller than the 1/2.3" sensor — expect corner shading/vignetting and a slightly narrower effective angle; 3 MP-rated glass is soft at 12.3 MP but fine at our 1280×720 capture |
+| 12 | CCTV IR **CS-mount** lens | **Arducam** | Arducam / Amazon | **6 mm** | **65° HFoV** on the IMX477 | **F1.2** | CCTV class (MP rating n/p), 1/2" format — covers the 1/2.3" IMX477 | IR-suitable — the lens Arducam pairs with its IR-CUT day/night HQ camera (B0270); passes IR when the cut filter opens | CS-mount, manual focus + manual iris ring, Φ28×26 mm, 50.5 g. Normal-wide view on the HQ camera — between #8 (4 mm, ~75°) and #7/#9 (8 mm, ~42°) |
+| 13 | Zoom lens **C-mount** (C-CS adapter incl.) | **Arducam** (LN057, model C2308ZM50) | Arducam / Amazon | **8–50 mm** varifocal | **45°–5.35° HFoV** at 1/2.3" | **F1.4** (12-blade manual iris) | box marks 3 MP; Arducam publishes no rating; 1/2.3" format | box marks IR; Arducam publishes no IR-correction claim — verify focus shift under night/IR light | C-mount + included C-CS adapter for the HQ camera, manual zoom/focus/iris rings, Φ40×68.3 mm, 148 g (heavy — needs mount support). Telephoto range for distant subjects; 3 MP-class glass is soft at 12.3 MP but fine at our 1280×720 capture |
 
 ## Practical notes for our fleet
 
@@ -60,3 +64,11 @@ CS-mount HQ cameras without an adapter.
   and [Alibaba listing](https://www.alibaba.com/product-detail/Fisheye-lens-1-44mm-1-2_60732057433.html)
 - [2.8 mm 5 MP M12 class specs (F1.8, ~120°)](https://aico-lens.com/product/normal-2-8-mm-focal-length-5mp-f1-8-m12-s-mount-cctv-board-lens-actm1228ir5mp3/)
 - [M12 lens types and specifications guide](https://www.superiorcctv.com/different-types-of-m12-lenses-and-how-to-choose/)
+- [Arducam LN051 3.2 mm 120° CS lens for the HQ camera](https://www.arducam.com/arducam-cs-lens-for-raspberry-pi-hq-camera-120-degree-ultra-wide-angle-cs-mount-lens-3-2mm-focal-length-with-manual-focus-ln051.html)
+  and its [Amazon listing](https://www.amazon.com/Arducam-Raspberry-Camera-Degree-CS-Mount/dp/B08BR7WPR9)
+- [AICO 2.1 mm F1.6 3 MP 160° CS fisheye (ACCF021163MP)](https://aico-lens.com/product/2-1mm-focal-length-wide-angle-fov-160-degree-cs-mount-cctv-lens-accf021163mp/)
+  and a [generic 2.1 mm 3 MP CS listing (Amazon)](https://www.amazon.com/2-1mm-Mount-Camera-Security-Cameras/dp/B0BVFXRJRZ)
+- [Arducam 6 mm CS wide-angle lens for the HQ camera](https://www.arducam.com/arducam-lens-for-raspberry-pi-high-quality-camera-wide-angle-cs-mount-lens-6mm-focal-length-with-manual-focus.html)
+  and the [Arducam IR-CUT HQ camera bundle it ships with (B0270)](https://www.arducam.com/arducam-high-quality-ir-cut-camera-for-raspberry-pi-12-3mp-1-2-3-inch-imx477-hq-camera-module-with-6mm-cs-lens-for-pi-4b-3b-2b-3a-pi-zero-and-more.html)
+- [Arducam LN057 8–50 mm C-mount zoom lens (C2308ZM50)](https://www.arducam.com/arducam-8-50mm-varifocal-c-mount-lens-for-raspberry-pi-hq-camera-with-c-cs-adapter-ln057.html)
+  and its [Amazon listing](https://www.amazon.com/Arducam-8-50mm-C-Mount-Raspberry-Adapter/dp/B08PYMBX9T)
