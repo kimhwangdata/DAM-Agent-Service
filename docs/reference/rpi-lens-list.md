@@ -30,6 +30,27 @@ CS-mount HQ cameras without an adapter.
 | 12 | CCTV IR **CS-mount** lens | **Arducam** | Arducam / Amazon | **6 mm** | **65° HFoV** on the IMX477 | **F1.2** | CCTV class (MP rating n/p), 1/2" format — covers the 1/2.3" IMX477 | IR-suitable — the lens Arducam pairs with its IR-CUT day/night HQ camera (B0270); passes IR when the cut filter opens | CS-mount, manual focus + manual iris ring, Φ28×26 mm, 50.5 g. Normal-wide view on the HQ camera — between #8 (4 mm, ~75°) and #7/#9 (8 mm, ~42°) |
 | 13 | Zoom lens **C-mount** (C-CS adapter incl.) | **Arducam** (LN057, model C2308ZM50) | Arducam / Amazon | **8–50 mm** varifocal | **45°–5.35° HFoV** at 1/2.3" | **F1.4** (12-blade manual iris) | box marks 3 MP; Arducam publishes no rating; 1/2.3" format | box marks IR; Arducam publishes no IR-correction claim — verify focus shift under night/IR light | C-mount + included C-CS adapter for the HQ camera, manual zoom/focus/iris rings, Φ40×68.3 mm, 148 g (heavy — needs mount support). Telephoto range for distant subjects; 3 MP-class glass is soft at 12.3 MP but fine at our 1280×720 capture |
 
+## Lens type by FoV
+
+Conventional naming buckets by **horizontal FoV** (the boundaries are
+industry convention, not hard standards — sellers round freely). A
+"normal" lens ≈ what the human eye attends to at once (~40–60°).
+
+| Type | HFoV | Focal length on 1/2.5" | Character | Our examples (hostname number = max FoV°) |
+|------|------|------------------------|-----------|-------------------------------------------|
+| Telephoto ("telescopic") | **< 30°** | ≳ 12 mm | Magnifies distant subjects; shallow view, mount shake visible | #13 zoom at the 50 mm end (5.35°) |
+| Narrow / long normal | **30–45°** | ~8–12 mm | Distant scenery framing | #7/#9 8 mm (~42° — `dam-imx477-45-*`), #13 zoom at 8 mm |
+| Normal (standard) | **45–60°** | ~4–6 mm | Human-eye-like perspective, minimal distortion | #12 6 mm (56–65°, borderline), stock 4 mm on OV5647 (`dam-ov5647-56`) |
+| Wide | **60–100°** | ~2.8–4 mm | Whole-scene view, mild edge stretch | #8 4 mm (~75° — `dam-imx477-80-z3`), IMX462 stock (92°) |
+| Ultra-wide | **100–130°** | ~2.1–2.8 mm | Dramatic perspective, visible barrel distortion | #1/#4/#6 2.8 mm (~113° — `dam-imx477-113-z2`), #10 3.2 mm CS (120° — `dam-imx477cs-120`) |
+| Fisheye | **> 130°** (often quoted diagonal, 160–180°+) | ≲ 2 mm | Curved-line projection by design; image circle may not cover the sensor | #2 (160°), #11 2.1 mm CS (160° — `dam-imx477-160-z1`), #3/#5 1.44–1.56 mm (180°) |
+
+Reading vendor specs: cheap-lens listings often quote the **diagonal**
+FoV (biggest number); horizontal is what framing actually feels like
+(~20–25% less on 16:9). Above ~130° the projection stops keeping lines
+straight — that distortion is what makes it a fisheye, not just the
+angle. Same lens, smaller sensor → narrower angle (see next section).
+
 ## Practical notes for our fleet
 
 - **Stated FoV depends on sensor format.** These angles assume the

@@ -181,7 +181,7 @@ camera/lens-specific values. Keys not listed = defaults.
 | `dam-imx219-62-z1` (JAYANG5) | Arducam IMX219 NoIR clone, stock 62° | `TUNING_FILE=imx219_noir.json`<br>`RAW_SIZE=1640,1232` | NoIR tuning fixes pink whites; binned full-FoV mode restores the true 62° (auto-pick cropped to ~37°) and halves night noise (video was 2–3× oversized). Also needs `dtoverlay=imx219` in config.txt |
 | `dam-imx477-113-z2` (JAYANG6) | HQ IMX477 M12, 2.8 mm wide IR lens (113°) | *(defaults)* | same stock-AE policy |
 | `dam-imx477-80-z3` (JAYANG7) | HQ IMX477 M12, 4 mm starlight lens (80°) | *(defaults)* | same |
-| `dam-ov5647ir-75` (JAYANG8) | OV5647 IR-CUT night cam, 3.6 mm (75°) | `RAW_SIZE=1296,972` | binned full-FoV mode (auto-pick cropped to ~45° effective). No night env: the IR-CUT + LDR switches day/night in hardware. Capture window 05:00–20:00 set in the frontend |
+| `dam-ov5647-56` (JAYANG8, ex `dam-ov5647ir-75`) | Arducam OV5647 M12 board (B0031), stock 4 mm (56°) — replaced the IR-CUT cam 2026-08-22 | `RAW_SIZE=1296,972` | binned full-FoV mode (auto-pick crops FoV on every OV5647). Stock AE, no night env. Capture window 05:00–20:00 set in the frontend |
 | `dam-imx477-45-3` (JAYANG9) | HQ IMX477, 8 mm (45°) | *(defaults)* | same stock-AE policy |
 | `dam-imx462-92-1` (JAYANGN) | Arducam Pivariety IMX462, F/0.95 92° | `MAX_EXPOSURE_MS=5000`<br>`NIGHT_EXPOSURE_MS=250`<br>`NIGHT_GAIN=2` | manual night mode (AE is capped ~66 ms); 250/2 won the 2026-08-17 A/B on stability and quality for indoor-lit scenes; on a true dark site use 1000/4. Needs the Pivariety recipe (§5B) |
 | `dam-imx462-92-2` (JAYANGN2) | Arducam Pivariety IMX462, F/0.95 92° | `MAX_EXPOSURE_MS=5000`<br>`NIGHT_EXPOSURE_MS=250`<br>`NIGHT_GAIN=2` | same |

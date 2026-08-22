@@ -16,7 +16,8 @@ selection overview; that page is the operational detail.
 | 4 | Arducam 8 MP "V2" (**UC-958**, board rev 2.3) | Arducam | Sony IMX219, 1/4", 1.12 µm | **3280×2464** (8 MP) | 1080p30, 1640×1232@~40, 720p60 | Fixed-focus stock lens (V2-class, ~62° DFoV; M12/CS variants exist) | No | Compatible with the official Camera Module 2, BUT firmware `camera_auto_detect` does not recognize this clone — force `camera_auto_detect=0` + `dtoverlay=imx219` (verified on `dam-imx219-62-z1`, Pi Zero 2 W, 2026-08-14; hostname 62 = stock lens ~62° DFoV). **Not good — avoid deploying**: needed the auto-detect workaround, NoIR-clone tuning fixes (pink cast), `RAW_SIZE` pinning to get its real FoV, and the unit then died in the field (camera I2C dead, 2026-08-22) — replaced by an IMX477 on that device |
 | 5 | RPi Camera Module, board **rev 1.3** (V1) | Raspberry Pi | OmniVision OV5647, 1/4" | **2592×1944** (5 MP) | 1080p30, 720p60, 640×480p60/90 | Fixed-focus ~3.6 mm, f/2.9, ~54°×41° FoV | No | The original 2013 module; still fully supported by libcamera (`ov5647`) |
 | 6 | Arducam standard 5 MP board (**UC-261**) | Arducam | OmniVision OV5647, 1/4" | **2592×1944** (5 MP) | 1080p30, 720p60, 640×480p60/90 | Fixed-focus stock lens, ~72° DFoV (rev C/D improved optics; M12-lens variants of the board exist) | No | UC-261 is the PCB code on Arducam's classic V1-compatible OV5647 board (B0033 family); works with the stock `ov5647` driver. Confirm rev with `rpicam-still --list-cameras` when connected |
-| 7 | No-name IR night-vision camera (photo-identified) | generic (OV5647 IR-CUT class) | OmniVision OV5647, 1/4" | **2592×1944** (5 MP; "1080p" is its video spec) | 1080p30, 720p60 | **3.6 mm** M12, f/1.8, ~75° FoV, manually focusable | **Yes** — motorized **IR-CUT** filter (3-pin connector), onboard **LDR** light sensor for auto day/night switching, screw tabs for two 850 nm IR LED boards (~8 m range) | Board layout (LDR bottom-left, IR-CUT plug right, side LED mounts) matches the common RPi IR-CUT 5 MP night camera sold by Waveshare/MakerFocus and others. Deployed 2026-08-15 as `dam-ov5647ir-75` (hostname: sensor+ir, 75° FoV) |
+| 7 | No-name IR night-vision camera (photo-identified) | generic (OV5647 IR-CUT class) | OmniVision OV5647, 1/4" | **2592×1944** (5 MP; "1080p" is its video spec) | 1080p30, 720p60 | **3.6 mm** M12, f/1.8, ~75° FoV, manually focusable | **Yes** — motorized **IR-CUT** filter (3-pin connector), onboard **LDR** light sensor for auto day/night switching, screw tabs for two 850 nm IR LED boards (~8 m range) | Board layout (LDR bottom-left, IR-CUT plug right, side LED mounts) matches the common RPi IR-CUT 5 MP night camera sold by Waveshare/MakerFocus and others. Deployed 2026-08-15 as `dam-ov5647ir-75` (hostname: sensor+ir, 75° FoV); swapped out for #8 on that device 2026-08-22 — back in the spares box |
+| 8 | Arducam 5 MP **M12-mount** board with acrylic case kit (**B0031** board; "with case" bundle B0033C) | Arducam | OmniVision OV5647, 1/4" | **2592×1944** (5 MP) | 1080p30, 720p60, 640×480p60/90 | Interchangeable **M12**; stock lens **4 mm, 56° HFoV** | No | 36×36 mm board, 4 mounting holes; the package includes an assemblable laser-cut acrylic case/stand (how we identified it). Stock `ov5647` driver, no overlay needed. Deployed 2026-08-22 as `dam-ov5647-56` (JAYANG8, replacing #7); needs `RAW_SIZE=1296,972` like every OV5647 |
 
 ## Fleet fit notes
 
@@ -26,7 +27,7 @@ selection overview; that page is the operational detail.
   scenery matters after dark. #5 is a serviceable spare at lower
   resolution; #4 is **not good** (see its Notes) — don't deploy it. #7 is interesting for 24 h locations: the IR-CUT + LDR
   gives usable frames at night if IR LED boards are fitted, at 5 MP.
-- **Driver support**: #1/#2 (`imx477`), #4 (`imx219`), #5/#7 (`ov5647`)
+- **Driver support**: #1/#2 (`imx477`), #4 (`imx219`), #5/#7/#8 (`ov5647`)
   all work with stock Raspberry Pi OS libcamera. Only #3 needs the
   Arducam Pivariety stack (pinned — see `camera-info.md`).
 - The agent's `CAPTURE_SIZE` (default 1280×720) is well inside every
@@ -46,3 +47,5 @@ selection overview; that page is the operational detail.
   and [Arducam Rev.C OV5647 optics note](https://blog.arducam.com/raspberry-pi-camera-rev-c-improves-optical-performance/)
 - [Waveshare RPi IR-CUT camera (OV5647, 3.6 mm, LDR + IR boards)](https://www.waveshare.com/rpi-ir-cut-camera.htm)
   and [The Pi Hut IR-CUT 5 MP night-vision camera](https://thepihut.com/products/raspberry-pi-night-vision-camera-ir-cut)
+- [UCTRONICS OV5647 M12 board (B0031 — stock 4 mm / 56° lens, 36×36 mm)](https://www.uctronics.com/camera-modules/camera-for-raspberry-pi/ov5647-camera-board-w-m12x0-5-mount-lens-fully-compatible-with-raspberry-pi.html)
+  and the [Arducam 5 MP with-case kit (B0033C)](https://www.arducam.com/b0033c-arducam-5mp-1080p-camera-module-with-case-for-raspberry-pi-3-3-b-and-more.html)
